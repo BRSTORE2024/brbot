@@ -773,7 +773,7 @@ async function finalizeOrderSuccess(orderData, paymentMethod, successTitle) {
         if (orderData.msg_id) bot.deleteMessage(orderData.user_id, orderData.msg_id).catch(()=>{});
     }
 
-    if (selProd.name.toLowerCase().includes('youtube') && orderData.qty <= 100) runAutoPayQuietly(orderData.reserved_accounts);
+    if (selProd.name.toLowerCase().includes('youtube') && orderData.qty <= 500) runAutoPayQuietly(orderData.reserved_accounts);
 }
 
 app.get('/api/bot/pending', async (req, res) => res.json(await readDB(paths.pending_qris)));
@@ -863,7 +863,7 @@ app.get('/api/bot/autopay/failed', async (req, res) => {
 
         const response = await fetch(targetUrl, { method: 'GET', headers: { 'x-api-key': config.autoPaySecret } });
         const data = JSON.parse(await response.text());
-        return res.json({ accounts: (data.accounts || []).slice(0, 100) });
+        return res.json({ accounts: (data.accounts || []).slice(0, 500) });
     } catch (err) { return res.json({ accounts: [] }); }
 });
 
