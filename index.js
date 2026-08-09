@@ -36,7 +36,6 @@ const paths = {
     products: path.join(DB_DIR, 'products.json'),
     orders: path.join(DB_DIR, 'orders.json'),
     pending_qris: path.join(DB_DIR, 'pending_qris.json'), 
-    admins: path.join(DB_DIR, 'admins.json'),
     config: path.join(DB_DIR, 'config.json'),
     stocks: path.join(DB_DIR, 'stocks')
 };
@@ -57,7 +56,6 @@ async function sendDatabaseBackup(targetChatId = null) {
     try {
         const config = await readConfig();
         const adminId = targetChatId || config.adminId;
-        
         if (!adminId || !bot) return;
 
         const zip = new AdmZip();
@@ -73,7 +71,6 @@ async function sendDatabaseBackup(targetChatId = null) {
                     hasFiles = true;
                 } catch {}
             }
-
             try {
                 const stockFiles = await fs.readdir(paths.stocks);
                 for (let sf of stockFiles) {
@@ -90,23 +87,15 @@ async function sendDatabaseBackup(targetChatId = null) {
             const zipName = `Backup_DB_${moment().format('YYYY-MM-DD_HH-mm')}.zip`;
 
             await bot.sendMessage(adminId, `📦 *AUTO BACKUP DATABASE*\n🗓️ Waktu: ${moment().format('YYYY-MM-DD HH:mm:ss')}\n📁 Format: Archive (.zip)`, { parse_mode: 'Markdown' });
-
-            await bot.sendDocument(adminId, zipBuffer, {}, {
-                filename: zipName,
-                contentType: 'application/zip'
-            });
+            await bot.sendDocument(adminId, zipBuffer, {}, { filename: zipName, contentType: 'application/zip' });
 
             if (targetChatId) bot.sendMessage(targetChatId, "✅ Backup database (ZIP) berhasil dikirim ke chat ini!");
-        } catch (err) {
-            console.error("❌ [BACKUP] Gagal memproses zip backup:", err.message);
-        }
-    } catch (e) {
-        console.error("❌ [BACKUP ERROR]:", e.message);
-    }
+        } catch (err) {}
+    } catch (e) {}
 }
 
 // ==========================================
-// FUNGSI API AUTO PAY KE SERVER B & AKUN GAGAL
+// FUNGSI API AUTO PAY KE SERVER B
 // ==========================================
 async function runAutoPayQuietly(accounts) {
     const config = await readConfig();
@@ -118,20 +107,10 @@ async function runAutoPayQuietly(accounts) {
     try {
         fetch(REMOTE_SERVER_URL, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'x-api-key': API_SECRET 
-            },
+            headers: { 'Content-Type': 'application/json', 'x-api-key': API_SECRET },
             body: JSON.stringify({ accounts: accounts })
-        })
-        .then(res => res.json())
-        .then(data => {})
-        .catch(err => {
-            console.error("❌ [SYSTEM] Gagal terhubung ke Server Auto Pay:", err.message);
-        });
-    } catch (error) {
-        console.error("❌ [SYSTEM] Error internal saat mengirim:", error.message);
-    }
+        }).catch(err => {});
+    } catch (error) {}
 }
 
 // ==========================================
@@ -158,17 +137,14 @@ async function cleanupExpiredQris() {
                     await fs.writeFile(sp, JSON.stringify(sd, null, 2));
                     
                     if (bot && order.user_id) {
-                        bot.sendMessage(order.user_id, `⚠️ *BATAL OTOMATIS*\n\nPesanan \`${order.order_id}\` telah dibatalkan karena melebihi batas waktu 5 menit.\n\n_👇 Klik tombol di bawah untuk kembali berbelanja:_`, { 
+                        bot.sendMessage(order.user_id, `⚠️ *BATAL OTOMATIS*\n\nPesanan \`${order.order_id}\` dibatalkan (melebihi batas waktu 5 menit).\n\n_👇 Klik tombol di bawah untuk kembali berbelanja:_`, { 
                             parse_mode: 'Markdown',
                             reply_markup: {
                                 keyboard: [[{ text: '🏷️ Daftar Produk' }, { text: '💰 Cek Saldo' }]],
                                 resize_keyboard: true
                             }
                         }).catch(()=>{});
-                        
-                        if (order.msg_id) {
-                            bot.deleteMessage(order.user_id, order.msg_id).catch(()=>{});
-                        }
+                        if (order.msg_id) bot.deleteMessage(order.user_id, order.msg_id).catch(()=>{});
                     }
                 } catch (e) { }
                 isModified = true;
@@ -177,9 +153,7 @@ async function cleanupExpiredQris() {
             }
         }
 
-        if (isModified) {
-            await fs.writeFile(paths.pending_qris, JSON.stringify(activeQris, null, 2));
-        }
+        if (isModified) await fs.writeFile(paths.pending_qris, JSON.stringify(activeQris, null, 2));
     } finally {
         release();
     }
@@ -200,12 +174,7 @@ async function initDB() {
     await cleanupExpiredQris(); 
     setInterval(cleanupExpiredQris, 60 * 1000); 
 
-    cron.schedule('1 0 * * *', () => {
-        sendDatabaseBackup();
-    }, {
-        scheduled: true,
-        timezone: "Asia/Jakarta"
-    });
+    cron.schedule('1 0 * * *', () => sendDatabaseBackup(), { scheduled: true, timezone: "Asia/Jakarta" });
 }
 
 // ==========================================
@@ -232,17 +201,12 @@ function makeDynamicQris(qris, amount) {
         let strAmount = amount.toString(); 
         let tagAmount = "54" + strAmount.length.toString().padStart(2, '0') + strAmount;
         
-        if (qrisTanpaCrc.includes('5802ID')) { 
-            qrisTanpaCrc = qrisTanpaCrc.replace('5802ID', tagAmount + '5802ID'); 
-        } else { 
-            qrisTanpaCrc += tagAmount; 
-        }
+        if (qrisTanpaCrc.includes('5802ID')) qrisTanpaCrc = qrisTanpaCrc.replace('5802ID', tagAmount + '5802ID'); 
+        else qrisTanpaCrc += tagAmount; 
         
         let newQris = qrisTanpaCrc + "6304"; 
         return newQris + crc16(newQris);
-    } catch (e) { 
-        return qris; 
-    }
+    } catch (e) { return qris; }
 }
 
 function calculatePrice(selVar, qty) {
@@ -292,9 +256,7 @@ async function setupTelegramBot() {
         try { 
             const d = await readDB(path.join(paths.stocks, `stock_${varId}.json`)); 
             return Array.isArray(d) ? d.length : 0; 
-        } catch { 
-            return 0; 
-        } 
+        } catch { return 0; } 
     }
 
     async function sendMainMenu(chatId, fromUser, page = 1, editMsgId = null) {
@@ -303,14 +265,7 @@ async function setupTelegramBot() {
             let users = await readDB(paths.users); 
             let user = users.find(u => u.id === fromUser.id);
             if (!user) { 
-                user = { 
-                    id: fromUser.id, 
-                    username: fromUser.username || "", 
-                    first_name: fromUser.first_name || "", 
-                    balance: 0, 
-                    trx_count: 0, 
-                    joined_at: moment().format('YYYY-MM-DD HH:mm:ss') 
-                }; 
+                user = { id: fromUser.id, username: fromUser.username || "", first_name: fromUser.first_name || "", balance: 0, trx_count: 0, joined_at: moment().format('YYYY-MM-DD HH:mm:ss') }; 
                 users.push(user); 
                 await fs.writeFile(paths.users, JSON.stringify(users, null, 2)); 
             }
@@ -331,7 +286,6 @@ async function setupTelegramBot() {
             global.userPages[chatId] = page;
 
             let txt = `*DAFTAR PRODUK*\n\n`;
-            
             const startIndex = (page - 1) * ITEMS_PER_PAGE;
             const paginatedProducts = products.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
@@ -348,29 +302,18 @@ async function setupTelegramBot() {
             if (page < totalPages) navBtns.push({ text: 'Selanjutnya', callback_data: `main_page|${page + 1}` });
             if (navBtns.length > 0) inlineLayout.push(navBtns);
 
-            const options = { 
-                parse_mode: 'Markdown', 
-                reply_markup: { inline_keyboard: inlineLayout } 
-            };
-
             let numBtns = [];
-            for (let i = 1; i <= products.length; i++) {
-                numBtns.push({ text: i.toString() });
-            }
+            for (let i = 1; i <= products.length; i++) numBtns.push({ text: i.toString() });
+            
             let bottomLayout = chunkArray(numBtns, 5); 
             bottomLayout.unshift([{ text: '🏷️ Daftar Produk' }, { text: `💰 Saldo: Rp ${(user.balance || 0).toLocaleString('id-ID')}` }]); 
+
+            const options = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineLayout } };
 
             if (editMsgId) {
                 bot.editMessageText(txt, { chat_id: chatId, message_id: editMsgId, ...options }).catch(()=>{});
             } else {
-                bot.sendMessage(chatId, txt, {
-                    ...options,
-                    reply_markup: {
-                        inline_keyboard: inlineLayout,
-                        keyboard: bottomLayout,
-                        resize_keyboard: true
-                    }
-                });
+                bot.sendMessage(chatId, txt, { ...options, reply_markup: { inline_keyboard: inlineLayout, keyboard: bottomLayout, resize_keyboard: true } });
             }
         } finally { release(); }
     }
@@ -378,7 +321,6 @@ async function setupTelegramBot() {
     async function renderVarMenu(product) {
         let descText = (product.description && product.description.trim() !== '') ? `_${product.description}_\n\n` : '';
         let text = `*${product.name}*\n${descText}`;
-        
         let totalSold = product.variations.reduce((sum, v) => sum + (v.sold || 0), 0);
         text += `${totalSold.toLocaleString('id-ID')} Sold\n\n`;
         
@@ -388,22 +330,16 @@ async function setupTelegramBot() {
             text += `${v.name} - Rp ${v.price.toLocaleString('id-ID')} (Stock: ${stock})\n`;
             
             let wList = v.wholesales || [];
-            if(wList.length === 0 && v.wholesaleMinQty && v.wholesalePrice) {
-                wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
-            }
+            if(wList.length === 0 && v.wholesaleMinQty && v.wholesalePrice) wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
             if (wList.length > 0) {
                 let sortedW = [...wList].sort((a,b) => a.minQty - b.minQty);
-                for(const w of sortedW) {
-                    text += ` └ _(Min. ${w.minQty} ➔ Rp ${w.price.toLocaleString('id-ID')}/item)_\n`;
-                }
+                for(const w of sortedW) text += ` └ _(Min. ${w.minQty} ➔ Rp ${w.price.toLocaleString('id-ID')}/item)_\n`;
             }
             text += `\n`; 
             btns.push({ text: v.name, callback_data: `sel|${v.id}` });
         }
         
-        text = text.trimEnd(); 
-        text += `\n\n_Updated ${moment().format('HH:mm:ss')} WIB_`;
-        
+        text = text.trimEnd() + `\n\n_Updated ${moment().format('HH:mm:ss')} WIB_`;
         let layout = chunkArray(btns, 2); 
         layout.push([{ text: 'Back', callback_data: `back_main` }]);
         return { text, reply_markup: { inline_keyboard: layout } };
@@ -413,53 +349,28 @@ async function setupTelegramBot() {
         let calc = calculatePrice(v, qty);
         let unitPriceDisplay = calc.isGrosir ? calc.finalPrice : calc.baseVPrice;
         let grosirNote = calc.isGrosir ? ' *(Harga Grosir)*' : '';
-        let text = `*RINGKASAN PESANAN*\n\n`;
-        text += `*Produk*  : ${product.name}\n`;
-        text += `*Varian*  : ${v.name}\n\n`;
-        text += `*Harga Satuan* : Rp ${unitPriceDisplay.toLocaleString('id-ID')}${grosirNote}\n`;
-        text += `*Stok Tersedia*  : ${stock}\n\n`;
-        text += `*Jumlah Beli*  : x${qty}\n`;
-        text += `*Total Pembayaran : Rp ${calc.total.toLocaleString('id-ID')}*\n\n`;
+        let text = `*RINGKASAN PESANAN*\n\n*Produk*  : ${product.name}\n*Varian*  : ${v.name}\n\n*Harga Satuan* : Rp ${unitPriceDisplay.toLocaleString('id-ID')}${grosirNote}\n*Stok Tersedia*  : ${stock}\n\n*Jumlah Beli*  : x${qty}\n*Total Pembayaran : Rp ${calc.total.toLocaleString('id-ID')}*\n\n`;
         
         return {
             text, 
             reply_markup: { inline_keyboard: [
-                [
-                    { text: '+ 1', callback_data: `qty|+1|${v.id}|${qty}` },
-                    { text: '+ 10', callback_data: `qty|+10|${v.id}|${qty}` },
-                    { text: '+ 100', callback_data: `qty|+100|${v.id}|${qty}` }
-                ],
-                [
-                    { text: '- 1', callback_data: `qty|-1|${v.id}|${qty}` },
-                    { text: '- 10', callback_data: `qty|-10|${v.id}|${qty}` },
-                    { text: '- 100', callback_data: `qty|-100|${v.id}|${qty}` }
-                ],
-                [
-                    { text: 'Refresh Stok', callback_data: `qty|+0|${v.id}|${qty}` }
-                ],
-                [
-                    { text: 'BAYAR SALDO', callback_data: `pay|saldo|${v.id}|${qty}` },
-                    { text: 'BAYAR QRIS', callback_data: `pay|qris|${v.id}|${qty}` }
-                ],
-                [
-                    { text: 'Batal / Kembali', callback_data: `back_var|${product.slug}` }
-                ]
+                [ { text: '+ 1', callback_data: `qty|+1|${v.id}|${qty}` }, { text: '+ 10', callback_data: `qty|+10|${v.id}|${qty}` }, { text: '+ 100', callback_data: `qty|+100|${v.id}|${qty}` } ],
+                [ { text: '- 1', callback_data: `qty|-1|${v.id}|${qty}` }, { text: '- 10', callback_data: `qty|-10|${v.id}|${qty}` }, { text: '- 100', callback_data: `qty|-100|${v.id}|${qty}` } ],
+                [ { text: 'Refresh Stok', callback_data: `qty|+0|${v.id}|${qty}` } ],
+                [ { text: 'BAYAR SALDO', callback_data: `pay|saldo|${v.id}|${qty}` }, { text: 'BAYAR QRIS', callback_data: `pay|qris|${v.id}|${qty}` } ],
+                [ { text: 'Batal / Kembali', callback_data: `back_var|${product.slug}` } ]
             ]}
         };
     }
 
-    bot.onText(/\/start|🏠 Menu/, async (msg) => {
-        return sendMainMenu(msg.chat.id, msg.from, 1);
-    });
+    bot.onText(/\/start|🏠 Menu/, async (msg) => sendMainMenu(msg.chat.id, msg.from, 1));
 
     bot.onText(/\/backup/, async (msg) => {
         const config = await readConfig();
         if (config.adminId && msg.from.id.toString() === config.adminId.toString()) {
             bot.sendMessage(msg.chat.id, "📦 Memproses ZIP backup seluruh database...");
             await sendDatabaseBackup(msg.chat.id);
-        } else {
-            bot.sendMessage(msg.chat.id, "❌ Perintah khusus Admin.");
-        }
+        } else bot.sendMessage(msg.chat.id, "❌ Perintah khusus Admin.");
     });
 
     bot.on('message', async (msg) => {
@@ -476,58 +387,34 @@ async function setupTelegramBot() {
         else if (msg.reply_to_message && msg.reply_to_message.text && msg.reply_to_message.text.includes('CUSTOM QUANTITY')) {
             const userId = msg.from.id;
             const newQty = parseInt(msg.text);
-            
-            if (isNaN(newQty) || newQty < 1) {
-                return bot.sendMessage(msg.chat.id, `❌ Masukkan angka jumlah yang valid (minimal 1).`);
-            }
-            
-            if (!global.customQtySessions || !global.customQtySessions[userId]) {
-                return bot.sendMessage(msg.chat.id, `⚠️ Sesi kedaluwarsa. Silakan ulangi tombol Custom Qty dari menu pesanan.`);
-            }
+            if (isNaN(newQty) || newQty < 1) return bot.sendMessage(msg.chat.id, `❌ Masukkan angka jumlah yang valid (minimal 1).`);
+            if (!global.customQtySessions || !global.customQtySessions[userId]) return bot.sendMessage(msg.chat.id, `⚠️ Sesi kedaluwarsa. Silakan ulangi tombol Custom Qty dari menu pesanan.`);
             
             const session = global.customQtySessions[userId];
             let products = await readDB(paths.products);
             let targetProd = null, targetVar = null;
-            
             for (const p of products) {
                 if (p.variations) {
                     const found = p.variations.find(v => v.id === session.varId);
-                    if (found) {
-                        targetProd = p;
-                        targetVar = found;
-                        break;
-                    }
+                    if (found) { targetProd = p; targetVar = found; break; }
                 }
             }
-            
-            if (!targetVar) {
-                return bot.sendMessage(msg.chat.id, `❌ Variasi produk tidak ditemukan.`);
-            }
+            if (!targetVar) return bot.sendMessage(msg.chat.id, `❌ Variasi produk tidak ditemukan.`);
             
             const stockCount = await getStockCount(targetVar.id);
-            if (newQty > stockCount) {
-                return bot.sendMessage(msg.chat.id, `❌ *Stok Tidak Cukup!*\n\nJumlah yang kamu minta (${newQty}) melebihi stok tersedia (${stockCount} Tersedia). Silakan masukkan angka yang lebih kecil.`, { parse_mode: 'Markdown' });
-            }
+            if (newQty > stockCount) return bot.sendMessage(msg.chat.id, `❌ *Stok Tidak Cukup!*\n\nJumlah yang kamu minta (${newQty}) melebihi stok tersedia (${stockCount} Tersedia).`, { parse_mode: 'Markdown' });
             
             bot.deleteMessage(msg.chat.id, msg.message_id).catch(()=>{});
             bot.deleteMessage(msg.chat.id, msg.reply_to_message.message_id).catch(()=>{});
             
             const updatedOrder = renderOrder(targetProd, targetVar, newQty, stockCount);
-            
-            bot.editMessageText(updatedOrder.text, {
-                chat_id: session.chatId,
-                message_id: session.msgId,
-                parse_mode: 'Markdown',
-                reply_markup: updatedOrder.reply_markup
-            }).catch(()=>{});
-            
+            bot.editMessageText(updatedOrder.text, { chat_id: session.chatId, message_id: session.msgId, parse_mode: 'Markdown', reply_markup: updatedOrder.reply_markup }).catch(()=>{});
             delete global.customQtySessions[userId];
         }
     });
 
     bot.onText(/^(\d+)$/, async (msg, match) => {
         if (msg.reply_to_message) return;
-        
         let products = await readDB(paths.products);
         let num = parseInt(match[1]);
         if (num > 0 && num <= products.length) {
@@ -543,17 +430,15 @@ async function setupTelegramBot() {
         const action = parts[0]; 
 
         if (action === 'main_page') {
-            const page = parseInt(parts[1]);
             bot.answerCallbackQuery(query.id);
-            return sendMainMenu(chatId, query.from, page, msgId);
+            return sendMainMenu(chatId, query.from, parseInt(parts[1]), msgId);
         }
 
         if (action === 'back_main') { 
             bot.deleteMessage(chatId, msgId).catch(()=>{}); 
             bot.answerCallbackQuery(query.id);
             if (!global.userPages) global.userPages = {};
-            let currentPage = global.userPages[chatId] || 1;
-            return sendMainMenu(chatId, query.from, currentPage); 
+            return sendMainMenu(chatId, query.from, global.userPages[chatId] || 1); 
         }
 
         let products = await readDB(paths.products);
@@ -583,10 +468,8 @@ async function setupTelegramBot() {
                     await fs.writeFile(paths.pending_qris, JSON.stringify(pQris, null, 2));
                 }
             } finally { release(); }
-            
             if (!global.userPages) global.userPages = {};
-            let currentPage = global.userPages[chatId] || 1;
-            return sendMainMenu(chatId, query.from, currentPage); 
+            return sendMainMenu(chatId, query.from, global.userPages[chatId] || 1); 
         }
 
         let selProd = null, selVar = null;
@@ -600,29 +483,19 @@ async function setupTelegramBot() {
             } 
         }
         
-        if (!selVar && action !== 'main_page' && action !== 'back_main' && action !== 'back_var' && action !== 'batal_qris') {
-            return bot.answerCallbackQuery(query.id, { text: "Error: Variasi tidak ditemukan" });
-        }
+        if (!selVar && action !== 'main_page' && action !== 'back_main' && action !== 'back_var' && action !== 'batal_qris') return bot.answerCallbackQuery(query.id, { text: "Error: Variasi tidak ditemukan" });
         const stockCount = selVar ? await getStockCount(selVar.id) : 0;
 
         if (action === 'sel' || action === 'qty') {
             let qty = action === 'sel' ? 1 : parseInt(parts[3]);
             if (action === 'qty') { 
                 const op = parts[1]; 
-                if (op === '+1') qty += 1; 
-                else if (op === '+10') qty += 10;
-                else if (op === '+100') qty += 100;
-                else if (op === '-1') qty -= 1;
-                else if (op === '-10') qty -= 10;
-                else if (op === '-100') qty -= 100;
+                if (op === '+1') qty += 1; else if (op === '+10') qty += 10; else if (op === '+100') qty += 100;
+                else if (op === '-1') qty -= 1; else if (op === '-10') qty -= 10; else if (op === '-100') qty -= 100;
             }
             if (qty < 1) qty = 1; 
-            if (qty > stockCount) { 
-                qty = stockCount; 
-                bot.answerCallbackQuery(query.id, { text: "Stok maksimal telah tercapai!" }); 
-            } else { 
-                bot.answerCallbackQuery(query.id); 
-            }
+            if (qty > stockCount) { qty = stockCount; bot.answerCallbackQuery(query.id, { text: "Stok maksimal telah tercapai!" }); } 
+            else bot.answerCallbackQuery(query.id); 
             
             const { text, reply_markup } = renderOrder(selProd, selVar, qty, stockCount);
             bot.editMessageText(text, { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', reply_markup }).catch(()=>{});
@@ -662,16 +535,7 @@ async function setupTelegramBot() {
                     await fs.writeFile(sp, JSON.stringify(sd, null, 2));
                     
                     let oid = `${prefix}-${dateStr}-${randomStr}`;
-                    
-                    await finalizeOrderSuccess({
-                        order_id: oid,
-                        user_id: user.id,
-                        var_id: selVar.id,
-                        qty: finalQty,
-                        total: basePrice,
-                        reserved_accounts: accs,
-                        msg_id: null
-                    }, 'balance', 'PEMBAYARAN BERHASIL (LUNAS)');
+                    await finalizeOrderSuccess({ order_id: oid, user_id: user.id, var_id: selVar.id, qty: finalQty, total: basePrice, reserved_accounts: accs, msg_id: null }, 'balance', 'PEMBAYARAN BERHASIL (LUNAS)');
 
                 } finally { release(); }
             } else if (parts[1] === 'qris') {
@@ -695,7 +559,6 @@ async function setupTelegramBot() {
                     const dynamicQrisString = makeDynamicQris(cfg.qrisString, finalTotal);
                     
                     let pq = await readDB(paths.pending_qris);
-                    
                     const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(dynamicQrisString)}&size=400&margin=2`;
                     const cap = `*INVOICE PEMBAYARAN*\n\`${oid}\`\n\nProduk: ${selProd.name}\nVariasi: ${selVar.name}\nJumlah: ${finalQty}x\nTotal: Rp. ${finalTotal.toLocaleString('id-ID')}`;
                     
@@ -704,18 +567,7 @@ async function setupTelegramBot() {
                     
                     const sentMsg = await bot.sendPhoto(chatId, qrUrl, { caption: cap, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: 'Batalkan Pesanan', callback_data: `batal_qris|${oid}` }]] } });
                     
-                    pq.push({ 
-                        order_id: oid, 
-                        user_id: query.from.id, 
-                        var_id: selVar.id, 
-                        qty: finalQty, 
-                        total: finalTotal, 
-                        reserved_accounts: resAccs, 
-                        status: 'pending', 
-                        date: moment().format('YYYY-MM-DD HH:mm:ss'),
-                        timestamp: Date.now(),
-                        msg_id: sentMsg.message_id
-                    });
+                    pq.push({ order_id: oid, user_id: query.from.id, var_id: selVar.id, qty: finalQty, total: finalTotal, reserved_accounts: resAccs, status: 'pending', date: moment().format('YYYY-MM-DD HH:mm:ss'), timestamp: Date.now(), msg_id: sentMsg.message_id });
                     await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
 
                 } finally { release(); }
@@ -725,16 +577,10 @@ async function setupTelegramBot() {
 }
 
 // ==========================================
-// ENDPOINT API & DASHBOARD (TANPA LOGIN)
+// ENDPOINT API & DASHBOARD (FULL CLEAN - NO LOGIN)
 // ==========================================
 app.get('/', (req, res) => res.redirect('/admin'));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get('/owner', (req, res) => res.redirect('/admin'));
-
-// Mock Auth API (agar script HTML tidak error saat cek sesi)
-app.get('/api/auth/me', (req, res) => { 
-    res.json({ user: { username: 'Admin', role: 'owner' } }); 
-});
 
 app.get('/api/bots', async (req, res) => { 
     const config = await readConfig(); 
@@ -761,16 +607,7 @@ app.get('/api/bot/stats', async (req, res) => {
         } 
     } catch (e) { } 
     
-    res.json({ 
-        isRunning: bot !== null, 
-        storeName: config.storeName, 
-        totalUsers: users.length, 
-        totalProducts: products.length, 
-        totalOrders: orders.length, 
-        revenue: totalRev, 
-        totalStock: totalStock,
-        totalSold: totalSold
-    });
+    res.json({ isRunning: bot !== null, storeName: config.storeName, totalUsers: users.length, totalProducts: products.length, totalOrders: orders.length, revenue: totalRev, totalStock: totalStock, totalSold: totalSold });
 });
 
 app.get('/api/bot/config', async (req, res) => res.json(await readConfig()));
@@ -828,7 +665,6 @@ app.put('/api/bot/products/:slug/variations/:varId', async (req, res) => {
         if(v) {
             if(req.body.name !== undefined) v.name = req.body.name;
             if(req.body.price !== undefined) v.price = parseInt(req.body.price);
-            
             if(req.body.wholesales !== undefined) {
                 v.wholesales = req.body.wholesales;
                 delete v.wholesaleMinQty;
@@ -865,13 +701,7 @@ app.post('/api/bot/stock/:id', async (req, res) => {
 
 app.get('/api/bot/users', async (req, res) => { 
     const users = await readDB(paths.users); 
-    res.json(users.map(u => ({ 
-        userId: u.id, 
-        username: u.username || "", 
-        firstName: u.first_name || "—", 
-        firstSeen: u.joined_at || "—", 
-        balance: u.balance || 0 
-    }))); 
+    res.json(users.map(u => ({ userId: u.id, username: u.username || "", firstName: u.first_name || "—", firstSeen: u.joined_at || "—", balance: u.balance || 0 }))); 
 });
 
 app.post('/api/bot/balance/:id/add', async (req, res) => { 
@@ -885,9 +715,6 @@ app.post('/api/bot/balance/:id/add', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// ==========================================
-// ENDPOINT: BROADCAST PESAN KE SEMUA USER
-// ==========================================
 app.post('/api/bot/broadcast', async (req, res) => {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: 'Pesan tidak boleh kosong' });
@@ -899,30 +726,18 @@ app.post('/api/bot/broadcast', async (req, res) => {
 
         res.json({ success: true, total: users.length, message: 'Broadcast sedang berjalan di latar belakang...' });
 
-        let successCount = 0;
-        let failCount = 0;
-        
+        let successCount = 0; let failCount = 0;
         for (let i = 0; i < users.length; i++) {
             try {
                 await bot.sendMessage(users[i].id, message, { parse_mode: 'Markdown' });
                 successCount++;
-            } catch (err) {
-                failCount++;
-            }
+            } catch (err) { failCount++; }
             await new Promise(resolve => setTimeout(resolve, 50)); 
         }
-        console.log(`📢 [BROADCAST SELESAI] Mengirim ke ${users.length} user. Sukses: ${successCount}, Gagal/Blokir: ${failCount}`);
-
-    } catch (err) {
-        console.error('❌ [BROADCAST ERROR]:', err.message);
-    } finally {
-        release();
-    }
+        console.log(`📢 [BROADCAST SELESAI] Sukses: ${successCount}, Gagal: ${failCount}`);
+    } catch (err) { } finally { release(); }
 });
 
-// ==========================================
-// HELPER: PROSES PESANAN SUKSES
-// ==========================================
 async function finalizeOrderSuccess(orderData, paymentMethod, successTitle) {
     const config = await readConfig();
     let p = await readDB(paths.products); 
@@ -931,79 +746,44 @@ async function finalizeOrderSuccess(orderData, paymentMethod, successTitle) {
     for (const pr of p) { 
         if (pr.variations) { 
             const f = pr.variations.find(v => v.id === orderData.var_id); 
-            if (f) { 
-                selProd = pr; 
-                selVar = f; 
-                f.sold = (f.sold || 0) + orderData.qty; 
-                break; 
-            } 
+            if (f) { selProd = pr; selVar = f; f.sold = (f.sold || 0) + orderData.qty; break; } 
         } 
     }
     await fs.writeFile(paths.products, JSON.stringify(p, null, 2));
     
     let orders = await readDB(paths.orders);
-    orders.push({ 
-        order_id: orderData.order_id, 
-        user_id: orderData.user_id, 
-        product: `${selProd.name} - ${selVar.name}`, 
-        qty: orderData.qty, 
-        total: orderData.total, 
-        date: moment().format('YYYY-MM-DD HH:mm'), 
-        paymentMethod: paymentMethod,
-        accounts: orderData.reserved_accounts 
-    });
+    orders.push({ order_id: orderData.order_id, user_id: orderData.user_id, product: `${selProd.name} - ${selVar.name}`, qty: orderData.qty, total: orderData.total, date: moment().format('YYYY-MM-DD HH:mm'), paymentMethod: paymentMethod, accounts: orderData.reserved_accounts });
     await fs.writeFile(paths.orders, JSON.stringify(orders, null, 2));
     
-    let noteText = selProd.name.toLowerCase().includes('youtube') ? `\n\n⚠️ *CATATAN PENTING:*\nJangan mengubah password atau login ke akun selama **1-5 menit** ke depan. Sistem kami sedang memproses aktivasi Premium otomatis di belakang layar.` : '';
+    let noteText = selProd.name.toLowerCase().includes('youtube') ? `\n\n⚠️ *CATATAN PENTING:*\nJangan mengubah password atau login ke akun selama **1-5 menit** ke depan.` : '';
     
     if (bot) {
-        let strukLunas = `✅ *${successTitle}* ✅\n\n`;
-        strukLunas += `🧾 *No. Invoice:* \`${orderData.order_id}\`\n`;
-        strukLunas += `🗓️ *Tanggal:* ${moment().format('DD/MM/YYYY HH:mm')}\n\n`;
-        strukLunas += `🎁 *DETAIL PESANAN KAMU:*\n`;
-        strukLunas += `━━━━━━━━━━━━━━━━━━━━━\n`;
-        
-        if (orderData.reserved_accounts.length > 5) {
-            strukLunas += `📄 _Detail akun terlampir pada file/dokumen di bawah ini._\n`;
-        } else {
-            strukLunas += `${orderData.reserved_accounts.join('\n')}\n`;
-        }
+        let strukLunas = `✅ *${successTitle}* ✅\n\n🧾 *No. Invoice:* \`${orderData.order_id}\`\n🗓️ *Tanggal:* ${moment().format('DD/MM/YYYY HH:mm')}\n\n🎁 *DETAIL PESANAN KAMU:*\n━━━━━━━━━━━━━━━━━━━━━\n`;
+        if (orderData.reserved_accounts.length > 5) strukLunas += `📄 _Detail akun terlampir pada file/dokumen di bawah ini._\n`;
+        else strukLunas += `${orderData.reserved_accounts.join('\n')}\n`;
 
-        strukLunas += `━━━━━━━━━━━━━━━━━━━━━\n`;
-        strukLunas += `Terima kasih telah berbelanja di *${config.storeName}*! 🙏${noteText}`;
+        strukLunas += `━━━━━━━━━━━━━━━━━━━━━\nTerima kasih telah berbelanja di *${config.storeName}*! 🙏${noteText}`;
 
         bot.sendMessage(orderData.user_id, strukLunas, { parse_mode: 'Markdown' });
         
         if (orderData.reserved_accounts.length > 5) {
             const fileBuffer = Buffer.from(orderData.reserved_accounts.join('\n'), 'utf-8');
-            bot.sendDocument(orderData.user_id, fileBuffer, {}, {
-                filename: `Akun_${orderData.order_id}.txt`,
-                contentType: 'text/plain'
-            });
+            bot.sendDocument(orderData.user_id, fileBuffer, {}, { filename: `Akun_${orderData.order_id}.txt`, contentType: 'text/plain' });
         }
-
         if (orderData.msg_id) bot.deleteMessage(orderData.user_id, orderData.msg_id).catch(()=>{});
     }
 
-    if (selProd.name.toLowerCase().includes('youtube')) {
-        if (orderData.qty <= 100) {
-            runAutoPayQuietly(orderData.reserved_accounts);
-        } else {
-            console.log(`⚠️ [SYSTEM] Order ${orderData.order_id} lebih dari 100 akun (${orderData.qty}). Auto Pay dibatalkan agar server tidak overload.`);
-        }
-    }
+    if (selProd.name.toLowerCase().includes('youtube') && orderData.qty <= 100) runAutoPayQuietly(orderData.reserved_accounts);
 }
 
-app.get('/api/bot/pending', async (req, res) => {
-    res.json(await readDB(paths.pending_qris));
-});
+app.get('/api/bot/pending', async (req, res) => res.json(await readDB(paths.pending_qris)));
 
 app.post('/api/bot/pending/:id/approve', async (req, res) => {
     const release = await dbLock.acquire(); 
     try {
         let pq = await readDB(paths.pending_qris);
         const idx = pq.findIndex(o => o.order_id === req.params.id);
-        if (idx === -1) return res.status(404).json({ error: 'Pesanan tidak ditemukan atau sudah expired' });
+        if (idx === -1) return res.status(404).json({ error: 'Pesanan tidak ditemukan' });
         
         const orderData = pq[idx];
         await finalizeOrderSuccess(orderData, 'qris_manual', 'PEMBAYARAN DISETUJUI MANUAL');
@@ -1011,7 +791,6 @@ app.post('/api/bot/pending/:id/approve', async (req, res) => {
         pq.splice(idx, 1); 
         await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
         res.json({ success: true });
-
     } finally { release(); }
 });
 
@@ -1039,25 +818,15 @@ app.post('/api/bot/pending/:id/reject', async (req, res) => {
 
 app.get('/api/bot/transactions', async (req, res) => { 
     const orders = await readDB(paths.orders);
-    res.json(orders.map(o => ({ 
-        trxId: o.order_id, 
-        userId: o.user_id, 
-        product: o.product, 
-        paymentMethod: o.paymentMethod || 'balance', 
-        amount: o.total, 
-        purchaseDate: o.date, 
-        accounts: o.accounts || [] 
-    }))); 
+    res.json(orders.map(o => ({ trxId: o.order_id, userId: o.user_id, product: o.product, paymentMethod: o.paymentMethod || 'balance', amount: o.total, purchaseDate: o.date, accounts: o.accounts || [] }))); 
 });
 
-// WEBHOOK DANA
 app.post('/dana-webhook', async (req, res) => {
     const text = req.body.message || req.body.text || JSON.stringify(req.body);
     const match = text.match(/Rp\s*([\d\.]+)/i); 
     if (!match) return res.send("Abaikan");
     
     const amount = parseInt(match[1].replace(/\./g, ''));
-    
     const release = await dbLock.acquire(); 
     try {
         let pq = await readDB(paths.pending_qris); 
@@ -1066,126 +835,50 @@ app.post('/dana-webhook', async (req, res) => {
         if (idx !== -1) {
             const orderData = pq[idx]; 
             await finalizeOrderSuccess(orderData, 'qris', 'PEMBAYARAN DANA TERDETEKSI! (LUNAS)');
-
             pq.splice(idx, 1); 
             await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
             return res.send("Sukses");
         }
-    } finally {
-        release(); 
-    }
-    
+    } finally { release(); }
     res.send("Not Found");
 });
 
 app.get('/api/bot/autopay/test', async (req, res) => {
     try {
         const config = await readConfig();
-        if (!config.autoPayUrl || !config.autoPaySecret) {
-            return res.json({ 
-                success: false, 
-                error: 'URL Auto Pay atau API Secret belum diatur di Config.' 
-            });
-        }
+        if (!config.autoPayUrl || !config.autoPaySecret) return res.json({ success: false, error: 'URL Auto Pay belum diatur.' });
+        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/check-failed`;
 
-        let baseUrl = config.autoPayUrl
-            .replace(/\/api\/trigger-autopay\/?$/, '')
-            .replace(/\/trigger-autopay\/?$/, '')
-            .replace(/\/api\/?$/, '');
-        let targetUrl = `${baseUrl}/api/check-failed`;
-
-        console.log(`🔍 [DEBUG TEST] Mencoba menghubungi: ${targetUrl}`);
-
-        const response = await fetch(targetUrl, {
-            method: 'GET',
-            headers: { 'x-api-key': config.autoPaySecret }
-        });
-
-        const responseText = await response.text();
-        if (response.ok) {
-            return res.json({ 
-                success: true, 
-                message: 'API berhasil terhubung dan merespons dengan baik!' 
-            });
-        } else {
-            return res.json({ 
-                success: false, 
-                error: `Server menolak (Status ${response.status}): ${responseText}` 
-            });
-        }
-    } catch (err) {
-        return res.json({ success: false, error: `Gagal terhubung: ${err.message}` });
-    }
+        const response = await fetch(targetUrl, { method: 'GET', headers: { 'x-api-key': config.autoPaySecret } });
+        if (response.ok) return res.json({ success: true, message: 'API berhasil terhubung!' });
+        else return res.json({ success: false, error: `Server menolak: ${await response.text()}` });
+    } catch (err) { return res.json({ success: false, error: err.message }); }
 });
 
 app.get('/api/bot/autopay/failed', async (req, res) => {
     try {
         const config = await readConfig();
-        if (!config.autoPayUrl || !config.autoPaySecret) {
-            return res.json({ accounts: [] });
-        }
+        if (!config.autoPayUrl || !config.autoPaySecret) return res.json({ accounts: [] });
+        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/check-failed`;
 
-        let baseUrl = config.autoPayUrl
-            .replace(/\/api\/trigger-autopay\/?$/, '')
-            .replace(/\/trigger-autopay\/?$/, '')
-            .replace(/\/api\/?$/, '');
-        let targetUrl = `${baseUrl}/api/check-failed`;
-
-        const response = await fetch(targetUrl, {
-            method: 'GET',
-            headers: { 'x-api-key': config.autoPaySecret }
-        });
-
-        const responseText = await response.text();
-        
-        try {
-            const data = JSON.parse(responseText);
-            let accounts = data.accounts || [];
-            
-            if (accounts.length > 100) {
-                accounts = accounts.slice(0, 100);
-            }
-
-            return res.json({ accounts });
-        } catch (e) {
-            return res.json({ accounts: [] });
-        }
-    } catch (err) {
-        return res.json({ accounts: [] });
-    }
+        const response = await fetch(targetUrl, { method: 'GET', headers: { 'x-api-key': config.autoPaySecret } });
+        const data = JSON.parse(await response.text());
+        return res.json({ accounts: (data.accounts || []).slice(0, 100) });
+    } catch (err) { return res.json({ accounts: [] }); }
 });
 
 app.post('/api/bot/autopay/retry', async (req, res) => {
     try {
         const config = await readConfig();
-        if (!config.autoPayUrl || !config.autoPaySecret) {
-            return res.status(400).json({ success: false, error: 'URL Auto Pay belum diatur di Config.' });
-        }
+        if (!config.autoPayUrl || !config.autoPaySecret) return res.status(400).json({ success: false, error: 'URL Auto Pay belum diatur.' });
+        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/retry-autopay`;
 
-        let baseUrl = config.autoPayUrl
-            .replace(/\/api\/trigger-autopay\/?$/, '')
-            .replace(/\/trigger-autopay\/?$/, '')
-            .replace(/\/api\/?$/, '');
-        let targetUrl = `${baseUrl}/api/retry-autopay`;
-
-        const response = await fetch(targetUrl, {
-            method: 'POST',
-            headers: { 'x-api-key': config.autoPaySecret }
-        });
-        
-        const responseText = await response.text();
-        try {
-            const data = JSON.parse(responseText);
-            return res.json(data);
-        } catch (e) {
-            return res.status(400).json({ success: false, error: 'Server B mengembalikan respon tidak valid (HTML).' });
-        }
-    } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
-    }
+        const response = await fetch(targetUrl, { method: 'POST', headers: { 'x-api-key': config.autoPaySecret } });
+        return res.json(JSON.parse(await response.text()));
+    } catch (err) { return res.status(500).json({ success: false, error: err.message }); }
 });
 
 app.listen(WEBHOOK_PORT, () => { 
-    console.log(`🌐 Web Dashboard & Server Webhook aktif di: http://localhost:${WEBHOOK_PORT}`); 
+    console.log(`🌐 Web Dashboard aktif di: http://localhost:${WEBHOOK_PORT}`); 
     initDB(); 
 });
