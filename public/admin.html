@@ -278,7 +278,16 @@
     <!-- ===== USERS ===== -->
     <div class="page" id="page-users">
       <div class="page-header"><div class="page-title">Users</div><div class="page-subtitle">Bot users & balance management</div></div>
-      <div class="card"><div class="table-wrap"><table><thead><tr><th>User ID</th><th>Username</th><th>First Name</th><th>First Seen</th><th>Balance</th><th>Actions</th></tr></thead><tbody id="usersTable"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:32px">Loading...</td></tr></tbody></table></div></div>
+      <div class="card">
+        <!-- Kolom Pencarian User Ditambahkan di sini -->
+        <div style="margin-bottom:14px"><input type="text" class="form-input" id="userSearch" placeholder="🔍 Cari User ID, Username, atau Nama..." oninput="filterUsers()" style="max-width:360px"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>User ID</th><th>Username</th><th>First Name</th><th>First Seen</th><th>Balance</th><th>Actions</th></tr></thead>
+            <tbody id="usersTable"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:32px">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ===== TRANSACTIONS & PENDING ===== -->
@@ -314,8 +323,12 @@
 <!-- MODALS -->
 <div class="modal-overlay" id="viewAccountsModal">
   <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Detail Akun Terkirim</div><button class="modal-close" onclick="hideModal('viewAccountsModal')">×</button></div>
+    <div class="modal-header">
+      <div class="modal-title">Detail Akun Terkirim</div>
+      <button class="modal-close" onclick="hideModal('viewAccountsModal')">×</button>
+    </div>
     <div id="viewAccountsContent" style="font-family: 'JetBrains Mono', monospace; background: var(--surface2); padding: 16px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; border: 1px solid var(--border); color: var(--accent);"></div>
+    <button class="btn btn-success btn-full" style="margin-top: 16px;" onclick="copyAccounts()">📋 Salin Semua Akun</button>
   </div>
 </div>
 
@@ -417,6 +430,7 @@
   let currentPage = 'dashboard'; 
   let allProducts = []; 
   let allTransactionsData = []; 
+  let allUsersData = []; // Variabel untuk menyimpan data users
   let toastTimer;
 
   const iconEdit = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
@@ -547,7 +561,6 @@
       } catch (e) { } 
   }
 
-  // --- FUNGSI TEST KONEKSI API & AKUN GAGAL ---
   async function testApiConnection() {
       try {
           showToast('⏳ Mengetes koneksi ke Server Auto Pay...');
@@ -887,12 +900,29 @@
       showToast('✅ Stock added!'); 
   });
 
+  // --- FUNGSI BARU: RENDER TABEL USER & PENCARIAN ---
+  function renderUsersTable(users) {
+      const tbody = document.getElementById('usersTable'); 
+      if (users.length === 0) return tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px">User tidak ditemukan</td></tr>'; 
+      tbody.innerHTML = users.map(user => `<tr><td><code>${user.userId}</code></td><td>${user.username ? `@${user.username}` : '—'}</td><td>${user.firstName || '—'}</td><td style="color:var(--text2);font-size:12px">${user.firstSeen}</td><td style="color:var(--accent);font-weight:bold">Rp ${(user.balance || 0).toLocaleString('id-ID')}</td><td><button class="btn btn-success" onclick="showAddBalanceModal(${user.userId})">+Saldo</button></td></tr>`).join(''); 
+  }
+
+  function filterUsers() {
+      const q = document.getElementById('userSearch').value.toLowerCase().trim();
+      if (!q) return renderUsersTable(allUsersData);
+      
+      const filtered = allUsersData.filter(user => 
+          (String(user.userId).includes(q)) || 
+          (user.username && user.username.toLowerCase().includes(q)) || 
+          (user.firstName && user.firstName.toLowerCase().includes(q))
+      );
+      renderUsersTable(filtered);
+  }
+
   async function loadUsers() { 
       try { 
-          const users = await fetch(`/api/bot/users`).then(r => r.json()); 
-          const tbody = document.getElementById('usersTable'); 
-          if (users.length === 0) return tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px">No users</td></tr>'; 
-          tbody.innerHTML = users.map(user => `<tr><td><code>${user.userId}</code></td><td>${user.username ? `@${user.username}` : '—'}</td><td>${user.firstName || '—'}</td><td style="color:var(--text2);font-size:12px">${user.firstSeen}</td><td style="color:var(--accent);font-weight:bold">Rp ${(user.balance || 0).toLocaleString('id-ID')}</td><td><button class="btn btn-success" onclick="showAddBalanceModal(${user.userId})">+Saldo</button></td></tr>`).join(''); 
+          allUsersData = await fetch(`/api/bot/users`).then(r => r.json()); 
+          renderUsersTable(allUsersData);
       } catch (e) { } 
   }
   
@@ -955,6 +985,22 @@
           document.getElementById('viewAccountsContent').textContent = "Tidak ada data akun yang tersimpan.";
       }
       showModal('viewAccountsModal');
+  }
+
+  // --- FUNGSI BARU: SALIN AKUN KE CLIPBOARD ---
+  function copyAccounts() {
+      const content = document.getElementById('viewAccountsContent').textContent;
+      
+      if (!content || content === "Tidak ada data akun yang tersimpan.") {
+          showToast('❌ Tidak ada akun untuk disalin!', 'error');
+          return;
+      }
+      
+      navigator.clipboard.writeText(content).then(() => {
+          showToast('✅ Berhasil menyalin seluruh akun!');
+      }).catch(err => {
+          showToast('❌ Gagal menyalin akun.', 'error');
+      });
   }
 
   function renderTransactionsTable(transactions) { 
