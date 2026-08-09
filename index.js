@@ -1,1124 +1,1191 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bot Panel - Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<style>
-  :root {
-    --bg: #000000; --surface: #0a0a0a; --surface2: #111111; --surface3: #1a1a1a;
-    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
-    --accent: #3fb950; --accent2: #58a6ff; --accent3: #f78166; --accent4: #ffa657;
-    --text: #e6edf3; --text2: #8b949e; --text3: #484f58; --sidebar-w: 240px; --radius: 10px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Sora', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; font-size: 14px; overflow-x: hidden; }
+require('dotenv').config();
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs').promises;
+const path = require('path');
+const moment = require('moment'); 
+const express = require('express');
+const AdmZip = require('adm-zip');
+const cron = require('node-cron');
 
-  .sidebar { width: var(--sidebar-w); min-height: 100vh; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; z-index: 100; transition: transform .25s ease; }
-  .sidebar-logo { padding: 22px 20px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-  .sidebar-logo .logo-icon { width: 36px; height: 36px; background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .sidebar-logo .logo-icon svg { color: #fff; }
-  .sidebar-logo .logo-text { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: .5px; line-height: 1.2; }
-  .sidebar-logo .logo-sub { font-size: 10px; color: var(--text3); font-weight: 400; font-family: 'Sora', sans-serif; }
-  .bot-selector-wrap { padding: 14px 12px 10px; border-bottom: 1px solid var(--border); }
-  .bot-selector-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); font-weight: 600; padding: 0 8px; margin-bottom: 8px; }
-  .bot-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background .15s; margin-bottom: 2px; border: 1px solid transparent; }
-  .bot-item.active { background: rgba(63,185,80,.1); border-color: rgba(63,185,80,.25); }
-  .bot-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; position: relative; }
-  .bot-dot.running { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-  .bot-item-info { flex: 1; min-width: 0; }
-  .bot-item-name { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bot-item-status { font-size: 10px; color: var(--text3); margin-top: 1px; }
+// ==========================================
+// INISIALISASI WEB SERVER (TANPA LOGIN)
+// ==========================================
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public'))); 
 
-  .sidebar-nav { padding: 12px; flex: 1; }
-  .nav-section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); font-weight: 600; padding: 8px 8px 6px; }
-  .nav-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; cursor: pointer; color: var(--text2); font-size: 13px; font-weight: 500; transition: all .15s; margin-bottom: 1px; border: none; background: none; width: 100%; text-align: left; }
-  .nav-item svg { flex-shrink: 0; }
-  .nav-item:hover { background: var(--surface2); color: var(--text); }
-  .nav-item.active { background: rgba(88,166,255,.1); color: var(--accent2); border-color: rgba(88,166,255,.2); }
-  .nav-item.active svg { color: var(--accent2); }
+const WEBHOOK_PORT = process.env.PORT || 3000;
 
-  .sidebar-footer { padding: 14px 12px; border-top: 1px solid var(--border); }
-  .user-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--surface2); margin-bottom: 8px; }
-  .user-avatar { width: 28px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, var(--accent2), #7c5df9); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
-  .user-chip-name { font-size: 12px; font-weight: 600; color: var(--text); }
+class JSONLock {
+    constructor() { this.queue = Promise.resolve(); }
+    async acquire() {
+        let release;
+        const next = new Promise(resolve => { release = resolve; });
+        const current = this.queue;
+        this.queue = current.then(() => next);
+        await current;
+        return release;
+    }
+}
+const dbLock = new JSONLock();
 
-  .main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
+const DB_DIR = path.join(__dirname, 'data');
+const paths = {
+    users: path.join(DB_DIR, 'users.json'),
+    products: path.join(DB_DIR, 'products.json'),
+    orders: path.join(DB_DIR, 'orders.json'),
+    pending_qris: path.join(DB_DIR, 'pending_qris.json'), 
+    admins: path.join(DB_DIR, 'admins.json'),
+    config: path.join(DB_DIR, 'config.json'),
+    stocks: path.join(DB_DIR, 'stocks')
+};
 
-  .content { padding: 24px; flex: 1; }
-  .page { display: none; } .page.active { display: block; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
-  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
-  .card-title { font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+async function readDB(filePath) { 
+    try { return JSON.parse(await fs.readFile(filePath, 'utf8')); } catch { return []; } 
+}
 
-  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; position: relative; overflow: hidden; }
-  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
-  .stat-card.s1::before { background: var(--accent); } .stat-card.s2::before { background: var(--accent2); } .stat-card.s3::before { background: var(--accent4); } .stat-card.s4::before { background: #bc8cff; }
-  .stat-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .8px; font-weight: 600; margin-bottom: 8px; }
-  .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; color: var(--text); }
-  .stat-card.s1 .stat-value { color: var(--accent); } .stat-card.s2 .stat-value { color: var(--accent2); } .stat-card.s3 .stat-value { color: var(--accent4); } .stat-card.s4 .stat-value { color: #bc8cff; }
+async function readConfig() { 
+    try { return JSON.parse(await fs.readFile(paths.config, 'utf8')); } 
+    catch { return { storeName: "BR STORE", token: "", adminId: "", qrisString: "", trxPrefix: "BR", autoPayUrl: "", autoPaySecret: "" }; } 
+}
 
-  .bot-status-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
-  .bot-status-key { font-size: 12px; color: var(--text2); font-weight: 500; }
-  .bot-status-val { font-size: 13px; color: var(--text); font-weight: 600; }
-  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-  .badge-green { background: rgba(63,185,80,.12); color: var(--accent); border: 1px solid rgba(63,185,80,.25); }
-  .badge-red { background: rgba(247,129,102,.12); color: var(--accent3); border: 1px solid rgba(247,129,102,.25); }
-  .badge-blue { background: rgba(88,166,255,.12); color: var(--accent2); border: 1px solid rgba(88,166,255,.25); }
-  .badge-orange { background: rgba(255,166,87,.12); color: var(--accent4); border: 1px solid rgba(255,166,87,.25); }
-
-  .form-group { margin-bottom: 16px; }
-  .form-label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .7px; color: var(--text2); margin-bottom: 7px; }
-  .form-input, .form-select, .form-textarea { width: 100%; padding: 9px 12px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 7px; color: var(--text); font-size: 13px; font-family: 'Sora', sans-serif; transition: border-color .15s; outline: none; }
-  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent2); background: var(--surface3); }
-  .form-textarea { resize: vertical; min-height: 80px; font-family: 'Sora', sans-serif; font-size: 13px; }
-  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 16px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all .15s; font-family: 'Sora', sans-serif; }
-  .btn-primary { background: rgba(88,166,255,.12); color: var(--accent2); border-color: rgba(88,166,255,.25); }
-  .btn-success { background: rgba(63,185,80,.12); color: var(--accent); border-color: rgba(63,185,80,.25); }
-  .btn-danger { background: rgba(247,129,102,.12); color: var(--accent3); border-color: rgba(247,129,102,.25); }
-  .btn-full { width: 100%; }
-  
-  .btn-outline-blue { background: transparent; border: 1px solid rgba(88,166,255,0.3); color: var(--accent2); }
-  .btn-outline-blue:hover { background: rgba(88,166,255,0.1); }
-  .btn-outline-orange { background: transparent; border: 1px solid rgba(255,166,87,0.3); color: var(--accent4); }
-  .btn-outline-orange:hover { background: rgba(255,166,87,0.1); }
-  .btn-outline-green { background: transparent; border: 1px solid rgba(63,185,80,0.3); color: var(--accent); }
-  .btn-outline-green:hover { background: rgba(63,185,80,0.1); }
-  .btn-outline-red { background: transparent; border: 1px solid rgba(247,129,102,0.3); color: var(--accent3); }
-  .btn-outline-red:hover { background: rgba(247,129,102,0.1); }
-  
-  .badge-slug { background: rgba(88,166,255,0.15); color: var(--accent2); padding: 4px 8px; font-family: monospace; font-size: 11px; border-radius: 4px;}
-  .badge-diskon { background: rgba(63,185,80,0.15); color: var(--accent); padding: 4px 8px; font-size: 11px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(63,185,80,0.3);}
-
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 10px 14px; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; font-weight: 700; color: var(--text3); border-bottom: 1px solid var(--border); white-space: nowrap; }
-  td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
-
-  .alert { padding: 10px 14px; border-radius: 7px; font-size: 12px; display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-  .alert-info { background: rgba(88,166,255,.1); color: var(--accent2); border: 1px solid rgba(88,166,255,.2); }
-  
-  #toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 12px 18px; font-size: 13px; font-weight: 500; color: var(--text); display: flex; align-items: center; gap: 8px; z-index: 9999; transform: translateY(80px); opacity: 0; transition: all .25s cubic-bezier(.34,1.56,.64,1); max-width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
-  #toast.show { transform: translateY(0); opacity: 1; }
-  #toast.success { border-color: rgba(63,185,80,.4); } #toast.error { border-color: rgba(247,129,102,.4); }
-
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(4px); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
-  .modal-overlay.show { display: flex; }
-  .modal-box { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 24px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6); animation: modalIn .2s ease; }
-  @keyframes modalIn { from { transform: scale(.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-  .modal-title { font-size: 15px; font-weight: 700; color: var(--text); }
-  .modal-close { background: none; border: none; color: var(--text3); cursor: pointer; width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all .15s; font-size: 18px; }
-
-  .page-header { margin-bottom: 20px; }
-  .page-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-  .page-subtitle { font-size: 12px; color: var(--text3); }
-  .empty-state { text-align: center; padding: 48px 20px; color: var(--text3); }
-  .stock-display { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 12px; color: var(--text); width: 100%; height: 180px; resize: vertical; }
-
-  .topbar { display: none; height: 56px; border-bottom: 1px solid var(--border); padding: 0 24px; align-items: center; justify-content: space-between; background: rgba(10,10,10,.92); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; gap: 12px; }
-  .topbar-left { display: flex; align-items: center; gap: 8px; }
-  .mobile-menu-btn { display: none; background: none; border: none; color: var(--text2); cursor: pointer; padding: 4px; }
-  .topbar-title, .topbar-breadcrumb { display: none !important; }
-
-  @media (max-width: 768px) { .topbar { display: flex; } .sidebar { transform: translateX(-100%); } .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,.5); } .main { margin-left: 0; } .mobile-menu-btn { display: flex; } .content { padding: 16px; } }
-</style>
-</head>
-<body>
-
-<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
-
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-logo">
-    <div class="logo-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg></div>
-    <div><div class="logo-text">BOT PANEL</div><div class="logo-sub">Pusat Kontrol Store</div></div>
-  </div>
-  <div class="bot-selector-wrap">
-    <div class="bot-selector-label">Your Bots</div>
-    <div id="sidebarBotList"><div style="padding:8px;font-size:12px;color:var(--text3)">Loading...</div></div>
-  </div>
-  <nav class="sidebar-nav">
-    <div class="nav-section-label">Management</div>
-    <button class="nav-item active" onclick="switchPage('dashboard',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg> Dashboard</button>
-    <button class="nav-item" onclick="switchPage('config',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> Config</button>
-    <button class="nav-item" onclick="switchPage('products',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg> Products</button>
-    <button class="nav-item" onclick="switchPage('stock',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="7.5 19.79 7.5 14.6 3 12"/><polyline points="21 12 16.5 14.6 16.5 19.79"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" x2="12" y1="22.08" y2="12"/></svg> Stock</button>
-    <button class="nav-item" onclick="switchPage('users',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg> Users</button>
-    <button class="nav-item" onclick="switchPage('transactions',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Transactions</button>
-    <button class="nav-item" onclick="switchPage('broadcast',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg> Broadcast</button>
-  </nav>
-  <div class="sidebar-footer">
-    <div class="user-chip">
-      <div class="user-avatar" id="userAvatar">A</div>
-      <div class="user-chip-name" id="userInfo">Admin</div>
-    </div>
-  </div>
-</aside>
-
-<main class="main">
-  <div class="topbar">
-    <div class="topbar-left">
-      <button class="mobile-menu-btn" onclick="toggleSidebar()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg></button>
-      <div><div class="topbar-title" id="topbarTitle">Dashboard</div><div class="topbar-breadcrumb" id="topbarBot">Select a bot</div></div>
-    </div>
-  </div>
-
-  <div class="content">
-    <!-- ===== DASHBOARD ===== -->
-    <div class="page active" id="page-dashboard">
-      <div class="page-header"><div class="page-title">Dashboard</div><div class="page-subtitle">Overview of your bot's performance</div></div>
-      <div class="stats-grid">
-        <div class="stat-card s1"><div class="stat-label">Products</div><div class="stat-value" id="totalProducts">—</div></div>
-        <div class="stat-card s2"><div class="stat-label">Stock Items</div><div class="stat-value" id="totalStock">—</div></div>
-        <div class="stat-card s3"><div class="stat-label">Users</div><div class="stat-value" id="totalUsers">—</div></div>
-        <div class="stat-card s4"><div class="stat-label">Transactions</div><div class="stat-value" id="totalTransactions">—</div></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-title">Bot Information</div></div>
-        <div id="dashboardBotInfo"><div class="empty-state"><p>Loading...</p></div></div>
-      </div>
-    </div>
-
-    <!-- ===== CONFIG ===== -->
-    <div class="page" id="page-config">
-      <div class="page-header"><div class="page-title">Configuration</div><div class="page-subtitle">Bot settings & payment gateway</div></div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:18px">Koneksi Server B (Auto Pay)</div>
-        <p style="font-size: 12px; color: var(--text2); margin-bottom: 16px;">Hubungkan bot toko ini dengan server Puppeteer Auto Pay kamu secara remote.</p>
-        <div class="form-grid">
-          <div class="form-group"><label class="form-label">Auto Pay URL (Server B)</label><input type="text" class="form-input" id="autoPayUrl" placeholder="http://123.45.67.89:4000/api/trigger-autopay"></div>
-          <div class="form-group"><label class="form-label">Auto Pay Secret Key</label><input type="password" class="form-input" id="autoPaySecret" placeholder="rahasia-brstore-2026"></div>
-        </div>
-        <button type="button" class="btn btn-outline-blue" style="margin-top: 10px;" onclick="testApiConnection()">🔍 Tes Koneksi API</button>
-      </div>
-
-      <!-- PANEL: RETRY AUTO PAY (AKUN GAGAL) -->
-      <div class="card" style="border: 1px solid rgba(255,166,87,0.3);">
-        <div class="card-title" style="margin-bottom:14px; color: var(--accent4);">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
-          Retry Auto Pay (Akun Gagal)
-        </div>
-        <p style="font-size: 12px; color: var(--text2); margin-bottom: 16px;">Membaca sisa akun yang gagal dari file <code>AKUN.txt</code> dan memicu ulang proses pembayaran di server Puppeteer.</p>
-        <div style="display:flex; gap:10px; margin-bottom: 14px;">
-            <button type="button" class="btn btn-outline-orange" onclick="cekAkunGagal()">Cek Akun Gagal</button>
-            <button type="button" class="btn btn-primary" onclick="retryAutoPay()">Ulangi Pay Sekarang</button>
-        </div>
-        <textarea class="stock-display" id="failedAccountsDisplay" readonly style="display:none; height: 120px;" placeholder="Menunggu data..."></textarea>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:18px">Payment Gateway</div>
-        <div class="alert alert-info" style="margin-bottom:16px">Sistem QRIS Otomatis. Upload gambar QRIS untuk mengekstrak string, atau paste manual.</div>
-        <div class="form-group">
-          <label class="form-label">Webhook URL Notif Forwarder</label>
-          <input type="text" class="form-input" id="customQrisWebhookUrl" readonly style="color:var(--accent2); font-family:'JetBrains Mono',monospace; cursor:copy; font-weight: bold;" onclick="this.select(); document.execCommand('copy'); showToast('URL Webhook disalin!');">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Upload Gambar QRIS DANA (Ekstrak Langsung)</label>
-          <input type="file" class="form-input" id="customQrisFile" accept="image/*" style="padding:6px">
-          <button type="button" class="btn btn-primary" style="margin-top:8px" onclick="extractQRIS()">Ekstrak QRIS</button>
-        </div>
-        <div class="form-group"><label class="form-label">Hasil Ekstraksi (Statis QR String)</label><textarea class="form-textarea" id="qrStringResult" placeholder="Hasil ekstrak otomatis muncul di sini..." rows="3"></textarea></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:18px">Bot Settings</div>
-        <form id="configForm">
-          <div class="form-grid">
-            <div class="form-group"><label class="form-label">Store Name</label><input type="text" class="form-input" id="storeName" placeholder="BR STORE"></div>
-            <div class="form-group"><label class="form-label">Transaction Prefix</label><input type="text" class="form-input" id="trxPrefix" placeholder="BR"></div>
-          </div>
-          <div class="form-group"><label class="form-label">Telegram Bot Token</label><input type="text" class="form-input" id="botToken"></div>
-          <div class="form-group"><label class="form-label">Admin Telegram ID</label><input type="text" class="form-input" id="adminId"></div>
-          <button type="submit" class="btn btn-primary">Save Configuration</button>
-        </form>
-      </div>
-    </div>
-
-    <!-- ===== PRODUCTS ===== -->
-    <div class="page" id="page-products">
-      <div class="page-header">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-          <div><div class="page-title">Products</div><div class="page-subtitle">Manage your product catalog</div></div>
-          <button class="btn btn-primary" onclick="showModal('addProductModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Add Product</button>
-        </div>
-      </div>
-      <div id="productsList"><div class="empty-state"><p>Loading products...</p></div></div>
-    </div>
-
-    <!-- ===== STOCK ===== -->
-    <div class="page" id="page-stock">
-      <div class="page-header"><div class="page-title">Stock Management</div><div class="page-subtitle">View and add stock codes per variation</div></div>
-      <div class="card">
-        <div class="form-group"><label class="form-label">Select Product Variation</label><select class="form-select" id="stockVariationSelector" onchange="loadStockForVariation()"><option value="">— Choose variation —</option></select></div>
-        <div id="stockDetails"></div>
-      </div>
-    </div>
-
-    <!-- ===== USERS ===== -->
-    <div class="page" id="page-users">
-      <div class="page-header"><div class="page-title">Users</div><div class="page-subtitle">Bot users & balance management</div></div>
-      <div class="card">
-        <div style="margin-bottom:14px"><input type="text" class="form-input" id="userSearch" placeholder="🔍 Cari User ID, Username, atau Nama..." oninput="filterUsers()" style="max-width:360px"></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>User ID</th><th>Username</th><th>First Name</th><th>First Seen</th><th>Balance</th><th>Actions</th></tr></thead>
-            <tbody id="usersTable"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:32px">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== TRANSACTIONS & PENDING ===== -->
-    <div class="page" id="page-transactions">
-      <div class="page-header"><div class="page-title">Transactions</div><div class="page-subtitle">Payment and order history</div></div>
-      
-      <div class="card">
-        <div class="card-title" style="margin-bottom:14px; color: var(--accent4);">⏳ Pending QRIS (Approval Manual)</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Trx ID</th><th>User ID</th><th>Variasi</th><th>Amount</th><th>Date</th><th>Action</th></tr></thead>
-            <tbody id="pendingTable"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:32px">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:14px;">✅ Riwayat Transaksi</div>
-        <div style="margin-bottom:14px"><input type="text" class="form-input" id="trxSearch" placeholder="🔍 Cari username, trx ID, atau produk..." oninput="filterTransactions()" style="max-width:360px"></div>
-        <div class="table-wrap">
-            <table>
-                <thead><tr><th>Trx ID</th><th>User</th><th>Product</th><th>Method</th><th>Amount</th><th>Date</th><th>Aksi</th></tr></thead>
-                <tbody id="transactionsTable"><tr><td colspan="7" style="text-align:center;color:var(--text3);padding:32px">Loading...</td></tr></tbody>
-            </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== BROADCAST ===== -->
-    <div class="page" id="page-broadcast">
-      <div class="page-header"><div class="page-title">Broadcast Message</div><div class="page-subtitle">Kirim pesan massal ke seluruh user bot</div></div>
-      <div class="card">
-        <div class="alert alert-info">Pesan mendukung format <strong>Markdown</strong>. Gunakan simbol <code>*tebal*</code>, <code>_miring_</code>, atau <code>`kode`</code>. Tekan tombol Enter untuk garis baru.</div>
-        <form id="broadcastForm">
-          <div class="form-group">
-            <label class="form-label">Isi Pesan Broadcast</label>
-            <textarea class="form-textarea" id="broadcastMessage" rows="8" placeholder="Halo kak, ada promo baru nih di BR STORE! Cek sekarang ya..." required></textarea>
-          </div>
-          <button type="submit" class="btn btn-primary" id="btnSendBroadcast">🚀 Kirim Broadcast Sekarang</button>
-        </form>
-      </div>
-    </div>
-  </div>
-</main>
-
-<div id="toast"><span id="toastMsg"></span></div>
-
-<!-- MODALS -->
-<div class="modal-overlay" id="viewAccountsModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <div class="modal-title">Detail Akun Terkirim</div>
-      <button class="modal-close" onclick="hideModal('viewAccountsModal')">×</button>
-    </div>
-    <div id="viewAccountsContent" style="font-family: 'JetBrains Mono', monospace; background: var(--surface2); padding: 16px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; border: 1px solid var(--border); color: var(--accent);"></div>
-    <button class="btn btn-success btn-full" style="margin-top: 16px;" onclick="copyAccounts()">📋 Salin Semua Akun</button>
-  </div>
-</div>
-
-<div class="modal-overlay" id="addProductModal">
-  <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Add New Product</div><button class="modal-close" onclick="hideModal('addProductModal')">×</button></div>
-    <form id="addProductForm">
-      <div class="form-group"><label class="form-label">Product Slug</label><input type="text" class="form-input" id="productSlug" required></div>
-      <div class="form-group"><label class="form-label">Product Name</label><input type="text" class="form-input" id="productName" required></div>
-      <div class="form-group"><label class="form-label">Description (Opsional)</label><textarea class="form-textarea" id="productDesc" rows="3"></textarea></div>
-      <button type="submit" class="btn btn-primary btn-full">Create Product</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="editProductModal">
-  <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Edit Product</div><button class="modal-close" onclick="hideModal('editProductModal')">×</button></div>
-    <form id="editProductForm">
-      <input type="hidden" id="editProdSlug">
-      <div class="form-group"><label class="form-label">Product Name</label><input type="text" class="form-input" id="editProdName" required></div>
-      <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="editProdDesc" rows="3"></textarea></div>
-      <button type="submit" class="btn btn-primary btn-full">Save Changes</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="addVariationModal">
-  <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Add Variation</div><button class="modal-close" onclick="hideModal('addVariationModal')">×</button></div>
-    <form id="addVariationForm">
-      <input type="hidden" id="variationProductSlug">
-      <div class="form-group"><label class="form-label">Variation Name</label><input type="text" class="form-input" id="variationName" required></div>
-      <div class="form-group"><label class="form-label">Price (Rp)</label><input type="number" class="form-input" id="variationPrice" required></div>
-      <button type="submit" class="btn btn-primary btn-full">Add Variation</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="editVariationModal">
-  <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Edit Variation</div><button class="modal-close" onclick="hideModal('editVariationModal')">×</button></div>
-    <form id="editVariationForm">
-      <input type="hidden" id="editVarProdSlug"><input type="hidden" id="editVarId">
-      <div class="form-group"><label class="form-label">Variation Name</label><input type="text" class="form-input" id="editVarName" required></div>
-      <div class="form-group"><label class="form-label">Price (Rp)</label><input type="number" class="form-input" id="editVarPrice" required></div>
-      <button type="submit" class="btn btn-primary btn-full">Save Changes</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="variationDiscountModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <div class="modal-title">Diskon Grosir Bertingkat</div>
-      <button class="modal-close" onclick="hideModal('variationDiscountModal')">×</button>
-    </div>
-    <form id="variationDiscountForm">
-      <input type="hidden" id="discVarProdSlug"><input type="hidden" id="discVarId">
-      <div style="font-size: 12px; color: var(--text2); margin-bottom: 16px;">Isi jumlah minimal beli dan harga grosirnya. Boleh isi 1 baris saja atau sampai 3 tingkatan (misal: Min 5 dan Min 100).</div>
-
-      <div class="form-grid" style="margin-bottom: 10px;">
-        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Min Beli 1</label><input type="number" class="form-input" id="discMin1" placeholder="Misal: 5"></div>
-        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Harga Satuan 1</label><input type="number" class="form-input" id="discPrice1" placeholder="Misal: 5000"></div>
-      </div>
-      
-      <div class="form-grid" style="margin-bottom: 10px;">
-        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Min Beli 2</label><input type="number" class="form-input" id="discMin2" placeholder="Misal: 50"></div>
-        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Harga Satuan 2</label><input type="number" class="form-input" id="discPrice2" placeholder="Misal: 4500"></div>
-      </div>
-
-      <div class="form-grid" style="margin-bottom: 18px;">
-        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Min Beli 3</label><input type="number" class="form-input" id="discMin3" placeholder="Misal: 100"></div>
-        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Harga Satuan 3</label><input type="number" class="form-input" id="discPrice3" placeholder="Misal: 4000"></div>
-      </div>
-
-      <div style="display:flex;gap:10px;">
-        <button type="submit" class="btn btn-success" style="flex:1">Simpan Grosir</button>
-        <button type="button" class="btn btn-danger" style="flex:1" onclick="clearVariationDiscount()">Hapus Semua</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="addStockModal">
-  <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Add Stock Codes</div><button class="modal-close" onclick="hideModal('addStockModal')">×</button></div>
-    <form id="addStockForm">
-      <input type="hidden" id="stockVariationId">
-      <div class="form-group"><label class="form-label">Codes (one per line)</label><textarea class="form-textarea" id="stockCodes" rows="10" required style="height:200px"></textarea></div>
-      <button type="submit" class="btn btn-primary btn-full">Add Stock</button>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="addBalanceModal">
-  <div class="modal-box">
-    <div class="modal-header"><div class="modal-title">Add Balance</div><button class="modal-close" onclick="hideModal('addBalanceModal')">×</button></div>
-    <form id="addBalanceForm">
-      <input type="hidden" id="balanceUserId">
-      <div class="form-group"><label class="form-label">Amount (Rp)</label><input type="number" class="form-input" id="balanceAmount" required></div>
-      <button type="submit" class="btn btn-success btn-full">Add Balance</button>
-    </form>
-  </div>
-</div>
-
-<script>
-  let currentPage = 'dashboard'; 
-  let allProducts = []; 
-  let allTransactionsData = []; 
-  let allUsersData = []; 
-  let toastTimer;
-
-  const iconEdit = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
-  const iconTrash = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
-  const iconTag = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
-  const iconPlus = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
-
-  function showToast(msg, type = 'success') { 
-      const toast = document.getElementById('toast'); 
-      toast.className = `show ${type}`; 
-      document.getElementById('toastMsg').textContent = msg; 
-      clearTimeout(toastTimer); 
-      toastTimer = setTimeout(() => { toast.className = ''; }, 3000); 
-  }
-
-  function showModal(id) { document.getElementById(id).classList.add('show'); }
-  function hideModal(id) { document.getElementById(id).classList.remove('show'); }
-  
-  document.querySelectorAll('.modal-overlay').forEach(el => { 
-      el.addEventListener('click', e => { 
-          if (e.target === el) el.classList.remove('show'); 
-      }); 
-  });
-
-  function toggleSidebar() { 
-      document.getElementById('sidebar').classList.toggle('open'); 
-      document.getElementById('sidebarOverlay').classList.toggle('show'); 
-  }
-  
-  function closeSidebar() { 
-      document.getElementById('sidebar').classList.remove('open'); 
-      document.getElementById('sidebarOverlay').classList.remove('show'); 
-  }
-
-  function switchPage(name, btn) {
-      currentPage = name; 
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); 
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-      document.getElementById(`page-${name}`).classList.add('active'); 
-      if (btn) btn.classList.add('active');
-      closeSidebar();
-      
-      if (name === 'dashboard') loadDashboard(); 
-      if (name === 'config') loadConfig(); 
-      if (name === 'products') loadProducts(); 
-      if (name === 'stock') loadStockSelector(); 
-      if (name === 'users') loadUsers(); 
-      if (name === 'transactions') loadTransactions();
-      if (name === 'broadcast') document.getElementById('broadcastMessage').focus();
-  }
-
-  async function checkAuth() { 
-      try { 
-          const res = await fetch('/api/auth/me'); 
-          const data = await res.json(); 
-          if (!res.ok || !data.user) { 
-              window.location.href = '/login'; 
-              return; 
-          } 
-          if(data.user.username) {
-              document.getElementById('userInfo').textContent = data.user.username; 
-              document.getElementById('userAvatar').textContent = data.user.username[0].toUpperCase(); 
-          }
-          loadBots(); 
-      } catch (err) { 
-          window.location.href = '/login'; 
-      } 
-  }
-
-  async function logout() { 
-      await fetch('/api/auth/logout', { method: 'POST' }); 
-      window.location.href = '/login'; 
-  }
-
-  async function loadBots() { 
-      try { 
-          const res = await fetch('/api/bots'); 
-          const bots = await res.json(); 
-          const container = document.getElementById('sidebarBotList'); 
-          if (bots.length > 0) { 
-              const bot = bots[0]; 
-              let statusText = bot.isRunning ? 'Running' : 'Stopped';
-              let dotClass = bot.isRunning ? 'running' : 'stopped';
-              container.innerHTML = `
-                <div class="bot-item active">
-                  <div class="bot-dot ${dotClass}"></div>
-                  <div class="bot-item-info">
-                    <div class="bot-item-name">${bot.NAMA_TOKO || 'BR STORE'}</div>
-                    <div class="bot-item-status">${statusText}</div>
-                  </div>
-                </div>`; 
-              loadDashboard(); 
-          } 
-      } catch (e) { console.error("Error loading bots", e); } 
-  }
-
-  async function loadDashboard() { 
-      try { 
-          const resStats = await fetch('/api/bot/stats'); 
-          const d = await resStats.json(); 
-          document.getElementById('totalProducts').textContent = d.totalProducts || 0; 
-          document.getElementById('totalStock').textContent = d.totalStock !== undefined ? d.totalStock : 0; 
-          document.getElementById('totalUsers').textContent = d.totalUsers || 0; 
-          document.getElementById('totalTransactions').textContent = d.totalOrders || 0; 
-          
-          let badgeClass = d.isRunning ? 'badge-green' : 'badge-red';
-          let statusText = d.isRunning ? '● Running' : '○ Stopped';
-          let revText = d.revenue ? d.revenue.toLocaleString('id-ID') : '0';
-          
-          document.getElementById('dashboardBotInfo').innerHTML = `
-            <div class="bot-status-row"><span class="bot-status-key">Store Name</span><span class="bot-status-val">${d.storeName || '—'}</span></div>
-            <div class="bot-status-row"><span class="bot-status-key">Status</span><span class="badge ${badgeClass}">${statusText}</span></div>
-            <div class="bot-status-row"><span class="bot-status-key">Total Revenue</span><span class="bot-status-val" style="color:var(--accent)">Rp ${revText}</span></div>
-          `; 
-      } catch (e) { console.error("Error loading dashboard", e); } 
-  }
-
-  async function loadConfig() { 
-      try { 
-          const config = await fetch(`/api/bot/config`).then(r => r.json()); 
-          document.getElementById('customQrisWebhookUrl').value = `${window.location.origin}/dana-webhook`; 
-          document.getElementById('botToken').value = config.token || ''; 
-          document.getElementById('adminId').value = config.adminId || ''; 
-          document.getElementById('storeName').value = config.storeName || ''; 
-          document.getElementById('qrStringResult').value = config.qrisString || ''; 
-          document.getElementById('trxPrefix').value = config.trxPrefix || 'BR'; 
-          document.getElementById('autoPayUrl').value = config.autoPayUrl || ''; 
-          document.getElementById('autoPaySecret').value = config.autoPaySecret || ''; 
-      } catch (e) { } 
-  }
-
-  async function testApiConnection() {
-      try {
-          showToast('⏳ Mengetes koneksi ke Server Auto Pay...');
-          const res = await fetch('/api/bot/autopay/test');
-          const data = await res.json();
-          if (data.success) {
-              showToast('✅ ' + data.message);
-          } else {
-              showToast('❌ ' + data.error, 'error');
-          }
-      } catch (e) {
-          showToast('❌ Gagal menghubungi server backend.', 'error');
-      }
-  }
-
-  async function cekAkunGagal() {
-      try {
-          const res = await fetch('/api/bot/autopay/failed');
-          const data = await res.json();
-          const textarea = document.getElementById('failedAccountsDisplay');
-          textarea.style.display = 'block';
-
-          if (res.ok && data.accounts && data.accounts.length > 0) {
-              textarea.value = data.accounts.join('\n');
-              showToast(`✅ Ditemukan ${data.accounts.length} akun gagal.`);
-          } else {
-              textarea.value = "✅ Tidak ada akun gagal. AKUN.txt bersih atau kosong.";
-              showToast('✅ Semua akun sukses!');
-          }
-      } catch (e) {
-          showToast('❌ Gagal membaca file AKUN.txt dari server.', 'error');
-      }
-  }
-
-  async function retryAutoPay() {
-      if (!confirm('Kirim ulang semua akun yang tersisa di AKUN.txt ke server Auto Pay?')) return;
-      try {
-          const res = await fetch('/api/bot/autopay/retry', { method: 'POST' });
-          const data = await res.json();
-          if (res.ok && data.success) {
-              showToast('✅ Perintah Ulangi Pay berhasil dikirim!');
-              setTimeout(cekAkunGagal, 2500); 
-          } else {
-              showToast('❌ Gagal: ' + (data.error || 'Server menolak perintah.'), 'error');
-          }
-      } catch (e) {
-          showToast('❌ Terjadi kesalahan jaringan.', 'error');
-      }
-  }
-
-  function extractQRIS() { 
-      const fileInput = document.getElementById('customQrisFile'); 
-      if (!fileInput.files[0]) return showToast('❌ Pilih gambar QRIS DANA dulu!', 'error'); 
-      const reader = new FileReader(); 
-      reader.onload = function(e) { 
-          const img = new Image(); 
-          img.onload = function() { 
-              const canvas = document.createElement('canvas'); 
-              const context = canvas.getContext('2d'); 
-              canvas.width = img.width; 
-              canvas.height = img.height; 
-              context.drawImage(img, 0, 0, img.width, img.height); 
-              const imageData = context.getImageData(0, 0, img.width, img.height); 
-              const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" }); 
-              if (code) { 
-                  document.getElementById('qrStringResult').value = code.data; 
-                  showToast('✅ QRIS diekstrak!'); 
-              } else { 
-                  showToast('❌ Gagal! Gambar buram/bukan QR.', 'error'); 
-              } 
-              fileInput.value = ''; 
-          }; 
-          img.src = e.target.result; 
-      }; 
-      reader.readAsDataURL(fileInput.files[0]); 
-  }
-
-  document.getElementById('configForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      const config = { 
-          storeName: document.getElementById('storeName').value, 
-          token: document.getElementById('botToken').value, 
-          adminId: document.getElementById('adminId').value, 
-          qrisString: document.getElementById('qrStringResult').value, 
-          trxPrefix: document.getElementById('trxPrefix').value,
-          autoPayUrl: document.getElementById('autoPayUrl').value,      
-          autoPaySecret: document.getElementById('autoPaySecret').value 
-      }; 
-      try { 
-          await fetch(`/api/bot/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }); 
-          showToast('✅ Config saved & Bot restarted!'); 
-      } catch { 
-          showToast('❌ Error saving config', 'error'); 
-      } 
-  });
-
-  document.getElementById('profileForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      const res = await fetch('/api/auth/change-profile', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ 
-              currentPassword: document.getElementById('currentPass').value, 
-              username: document.getElementById('newUsername').value, 
-              password: document.getElementById('newPass').value 
-          }) 
-      }); 
-      const data = await res.json(); 
-      if(res.ok && data.success) { 
-          showToast('✅ Profil diperbarui! Silakan login ulang.'); 
-          setTimeout(() => logout(), 1500); 
-      } else { 
-          showToast('❌ Gagal: ' + data.error, 'error'); 
-      } 
-  });
-
-  // --- RENDERING PRODUK DENGAN BADGE GROSIR MULTI-TIER ---
-  async function loadProducts() {
+// ==========================================
+// FUNGSI AUTO BACKUP DATABASE (.ZIP) KE TELEGRAM
+// ==========================================
+async function sendDatabaseBackup(targetChatId = null) {
     try {
-        const res = await fetch(`/api/bot/products`); 
-        allProducts = await res.json();
-        const container = document.getElementById('productsList');
-        if (allProducts.length === 0) { 
-            container.innerHTML = `<div class="empty-state"><p>No products yet. Click <strong>Add Product</strong>.</p></div>`; 
-            return; 
-        }
-        let htmlContent = '';
-        allProducts.forEach(product => {
-            htmlContent += `
-            <div class="card" style="padding:16px; margin-bottom:16px; background:var(--surface);">
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
-                <div>
-                  <div style="font-size:16px; font-weight:700; color:var(--accent2); margin-bottom:4px; text-transform:uppercase">${product.name}</div>
-                  <div style="font-size:12px; color:var(--text2); margin-bottom:8px;">${product.description || ''}</div>
-                  <div style="display:flex; gap:8px; align-items:center;">
-                    <span class="badge-slug">${product.slug}</span>
-                  </div>
-                </div>
-                <div style="display:flex; gap:6px; flex-shrink:0;">
-                  <button class="btn btn-outline-blue" onclick="showAddVariationModal('${product.slug}')">${iconPlus} Variation</button>
-                  <button class="btn btn-outline-orange" onclick="showEditProductModal('${product.slug}')">${iconEdit} Edit</button>
-                  <button class="btn btn-outline-red" onclick="deleteProduct('${product.slug}')">${iconTrash}</button>
-                </div>
-              </div>`;
-            if(product.variations && product.variations.length > 0) {
-                product.variations.forEach(v => {
-                    let badgeHTML = '';
-                    let wList = v.wholesales || [];
-                    if(wList.length === 0 && v.wholesaleMinQty && v.wholesalePrice) {
-                        wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
-                    }
-                    if (wList.length > 0) {
-                        wList.sort((a,b) => a.minQty - b.minQty);
-                        badgeHTML = wList.map(w => `<span class="badge-diskon" style="margin-right:8px; margin-bottom:4px; border:1px solid rgba(63,185,80,0.3)">${iconTag} Min ${w.minQty} @ Rp ${w.price.toLocaleString('id-ID')}</span>`).join('');
-                    }
+        const config = await readConfig();
+        const adminId = targetChatId || config.adminId;
+        
+        if (!adminId || !bot) return;
 
-                    htmlContent += `
-                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px 16px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                      <div>
-                        <div style="font-size:14px; font-weight:bold; color:var(--text); margin-bottom:2px;">${v.name}</div>
-                        <div style="font-size:11px; color:var(--text3);">${v.id}</div>
-                      </div>
-                      <div style="display:flex; align-items:center; gap:10px;">
-                        ${badgeHTML}
-                        <span style="color:var(--accent); font-family:'JetBrains Mono', monospace; font-size:13px; font-weight:bold;">
-                          Rp ${v.price.toLocaleString('id-ID')}
-                        </span>
-                        <button class="btn btn-outline-green" style="padding:5px 10px;" onclick="showVariationDiscountModal('${product.slug}', '${v.id}')">${iconTag} Diskon</button>
-                        <button class="btn btn-outline-orange" style="padding:5px 10px;" onclick="showEditVariationModal('${product.slug}', '${v.id}')">${iconEdit}</button>
-                        <button class="btn btn-outline-red" style="padding:5px 10px;" onclick="deleteVariation('${product.slug}', '${v.id}')">${iconTrash}</button>
-                      </div>
-                    </div>`;
+        const zip = new AdmZip();
+        let hasFiles = false;
+
+        try {
+            const rootFiles = ['users.json', 'products.json', 'orders.json', 'pending_qris.json', 'config.json'];
+            for (let f of rootFiles) {
+                let p = path.join(DB_DIR, f);
+                try {
+                    await fs.access(p);
+                    zip.addLocalFile(p);
+                    hasFiles = true;
+                } catch {}
+            }
+
+            try {
+                const stockFiles = await fs.readdir(paths.stocks);
+                for (let sf of stockFiles) {
+                    if (sf.endsWith('.json')) {
+                        zip.addLocalFile(path.join(paths.stocks, sf), 'stocks');
+                        hasFiles = true;
+                    }
+                }
+            } catch {}
+
+            if (!hasFiles) return;
+
+            const zipBuffer = zip.toBuffer();
+            const zipName = `Backup_DB_${moment().format('YYYY-MM-DD_HH-mm')}.zip`;
+
+            await bot.sendMessage(adminId, `📦 *AUTO BACKUP DATABASE*\n🗓️ Waktu: ${moment().format('YYYY-MM-DD HH:mm:ss')}\n📁 Format: Archive (.zip)`, { parse_mode: 'Markdown' });
+
+            await bot.sendDocument(adminId, zipBuffer, {}, {
+                filename: zipName,
+                contentType: 'application/zip'
+            });
+
+            if (targetChatId) bot.sendMessage(targetChatId, "✅ Backup database (ZIP) berhasil dikirim ke chat ini!");
+        } catch (err) {
+            console.error("❌ [BACKUP] Gagal memproses zip backup:", err.message);
+        }
+    } catch (e) {
+        console.error("❌ [BACKUP ERROR]:", e.message);
+    }
+}
+
+// ==========================================
+// FUNGSI API AUTO PAY KE SERVER B & AKUN GAGAL
+// ==========================================
+async function runAutoPayQuietly(accounts) {
+    const config = await readConfig();
+    const REMOTE_SERVER_URL = config.autoPayUrl; 
+    const API_SECRET = config.autoPaySecret; 
+
+    if (!REMOTE_SERVER_URL) return;
+
+    try {
+        fetch(REMOTE_SERVER_URL, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-api-key': API_SECRET 
+            },
+            body: JSON.stringify({ accounts: accounts })
+        })
+        .then(res => res.json())
+        .then(data => {})
+        .catch(err => {
+            console.error("❌ [SYSTEM] Gagal terhubung ke Server Auto Pay:", err.message);
+        });
+    } catch (error) {
+        console.error("❌ [SYSTEM] Error internal saat mengirim:", error.message);
+    }
+}
+
+// ==========================================
+// SISTEM AUTO-CLEANUP QRIS EXPIRED (5 MENIT)
+// ==========================================
+async function cleanupExpiredQris() {
+    const release = await dbLock.acquire();
+    try {
+        let pQris = await readDB(paths.pending_qris);
+        if (pQris.length === 0) return; 
+
+        const now = Date.now();
+        const EXPIRE_TIME = 5 * 60 * 1000; 
+
+        let activeQris = [];
+        let isModified = false;
+
+        for (let order of pQris) {
+            if (!order.timestamp || (now - order.timestamp > EXPIRE_TIME)) {
+                try {
+                    const sp = path.join(paths.stocks, `stock_${order.var_id}.json`);
+                    let sd = await readDB(sp);
+                    sd.push(...order.reserved_accounts);
+                    await fs.writeFile(sp, JSON.stringify(sd, null, 2));
+                    
+                    if (bot && order.user_id) {
+                        bot.sendMessage(order.user_id, `⚠️ *BATAL OTOMATIS*\n\nPesanan \`${order.order_id}\` telah dibatalkan karena melebihi batas waktu 5 menit.\n\n_👇 Klik tombol di bawah untuk kembali berbelanja:_`, { 
+                            parse_mode: 'Markdown',
+                            reply_markup: {
+                                keyboard: [[{ text: '🏷️ Daftar Produk' }, { text: '💰 Cek Saldo' }]],
+                                resize_keyboard: true
+                            }
+                        }).catch(()=>{});
+                        
+                        if (order.msg_id) {
+                            bot.deleteMessage(order.user_id, order.msg_id).catch(()=>{});
+                        }
+                    }
+                } catch (e) { }
+                isModified = true;
+            } else {
+                activeQris.push(order);
+            }
+        }
+
+        if (isModified) {
+            await fs.writeFile(paths.pending_qris, JSON.stringify(activeQris, null, 2));
+        }
+    } finally {
+        release();
+    }
+}
+
+async function initDB() {
+    await fs.mkdir(DB_DIR, { recursive: true }); 
+    await fs.mkdir(paths.stocks, { recursive: true });
+    
+    try { await fs.access(paths.config); } catch { await fs.writeFile(paths.config, JSON.stringify({ storeName: "BR STORE", token: "", adminId: "", qrisString: "", trxPrefix: "BR", autoPayUrl: "", autoPaySecret: "" }, null, 2)); }
+    
+    const defaultFiles = [paths.users, paths.products, paths.orders, paths.pending_qris];
+    for (const file of defaultFiles) { 
+        try { await fs.access(file); } catch { await fs.writeFile(file, '[]', 'utf8'); } 
+    }
+    setupTelegramBot(); 
+
+    await cleanupExpiredQris(); 
+    setInterval(cleanupExpiredQris, 60 * 1000); 
+
+    cron.schedule('1 0 * * *', () => {
+        sendDatabaseBackup();
+    }, {
+        scheduled: true,
+        timezone: "Asia/Jakarta"
+    });
+}
+
+// ==========================================
+// SISTEM TELEGRAM BOT
+// ==========================================
+let bot = null;
+
+function crc16(str) {
+    let crc = 0xFFFF;
+    for (let i = 0; i < str.length; i++) {
+        crc ^= str.charCodeAt(i) << 8;
+        for (let j = 0; j < 8; j++) {
+            if ((crc & 0x8000) > 0) crc = (crc << 1) ^ 0x1021;
+            else crc = crc << 1;
+        }
+    }
+    return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+}
+
+function makeDynamicQris(qris, amount) {
+    try {
+        let qrisTanpaCrc = qris.substring(0, qris.lastIndexOf('6304'));
+        qrisTanpaCrc = qrisTanpaCrc.replace('010211', '010212');
+        let strAmount = amount.toString(); 
+        let tagAmount = "54" + strAmount.length.toString().padStart(2, '0') + strAmount;
+        
+        if (qrisTanpaCrc.includes('5802ID')) { 
+            qrisTanpaCrc = qrisTanpaCrc.replace('5802ID', tagAmount + '5802ID'); 
+        } else { 
+            qrisTanpaCrc += tagAmount; 
+        }
+        
+        let newQris = qrisTanpaCrc + "6304"; 
+        return newQris + crc16(newQris);
+    } catch (e) { 
+        return qris; 
+    }
+}
+
+function calculatePrice(selVar, qty) {
+    let baseVPrice = selVar.price || 0;
+    let finalPrice = baseVPrice;
+    let isGrosir = false;
+
+    let wList = selVar.wholesales || [];
+    if (wList.length === 0 && selVar.wholesaleMinQty && selVar.wholesalePrice) {
+        wList = [{minQty: selVar.wholesaleMinQty, price: selVar.wholesalePrice}];
+    }
+
+    if (wList.length > 0) {
+        let sortedW = [...wList].sort((a, b) => b.minQty - a.minQty);
+        for (let w of sortedW) {
+            if (qty >= w.minQty) {
+                finalPrice = w.price;
+                isGrosir = true;
+                break;
+            }
+        }
+    }
+
+    let total = finalPrice * qty;
+    return { total: Math.round(total), baseVPrice: Math.round(baseVPrice), finalPrice: Math.round(finalPrice), isGrosir };
+}
+
+async function setupTelegramBot() {
+    const config = await readConfig();
+    if (bot) { 
+        try { await bot.stopPolling(); } catch (e) {} 
+        bot = null; 
+    }
+    if (!config.token) return console.log("⚠️ [BOT] Token Telegram belum diset!");
+    
+    bot = new TelegramBot(config.token, { polling: true });
+    console.log("✅ [BOT] Telegram Bot Berhasil Berjalan!");
+    bot.on('polling_error', () => {}); 
+
+    function chunkArray(array, size) { 
+        const chunked = []; 
+        for (let i = 0; i < array.length; i += size) chunked.push(array.slice(i, i + size)); 
+        return chunked; 
+    }
+
+    async function getStockCount(varId) { 
+        try { 
+            const d = await readDB(path.join(paths.stocks, `stock_${varId}.json`)); 
+            return Array.isArray(d) ? d.length : 0; 
+        } catch { 
+            return 0; 
+        } 
+    }
+
+    async function sendMainMenu(chatId, fromUser, page = 1, editMsgId = null) {
+        const release = await dbLock.acquire(); 
+        try {
+            let users = await readDB(paths.users); 
+            let user = users.find(u => u.id === fromUser.id);
+            if (!user) { 
+                user = { 
+                    id: fromUser.id, 
+                    username: fromUser.username || "", 
+                    first_name: fromUser.first_name || "", 
+                    balance: 0, 
+                    trx_count: 0, 
+                    joined_at: moment().format('YYYY-MM-DD HH:mm:ss') 
+                }; 
+                users.push(user); 
+                await fs.writeFile(paths.users, JSON.stringify(users, null, 2)); 
+            }
+            
+            let products = await readDB(paths.products);
+            if (!products.length) {
+                const noProdTxt = `Halo! Belum ada produk saat ini.`;
+                if (editMsgId) return bot.editMessageText(noProdTxt, {chat_id: chatId, message_id: editMsgId}).catch(()=>{});
+                return bot.sendMessage(chatId, noProdTxt);
+            }
+
+            const ITEMS_PER_PAGE = 9;
+            const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE) || 1;
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
+
+            if (!global.userPages) global.userPages = {};
+            global.userPages[chatId] = page;
+
+            let txt = `*DAFTAR PRODUK*\n\n`;
+            
+            const startIndex = (page - 1) * ITEMS_PER_PAGE;
+            const paginatedProducts = products.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+            paginatedProducts.forEach((p, i) => { 
+                const absoluteNum = startIndex + i + 1; 
+                txt += `${absoluteNum}. ${p.name}\n`; 
+            });
+            
+            txt += `\nHalaman ${page}/${totalPages}\n`;
+            
+            let inlineLayout = [];
+            let navBtns = [];
+            if (page > 1) navBtns.push({ text: 'Sebelumnya', callback_data: `main_page|${page - 1}` });
+            if (page < totalPages) navBtns.push({ text: 'Selanjutnya', callback_data: `main_page|${page + 1}` });
+            if (navBtns.length > 0) inlineLayout.push(navBtns);
+
+            const options = { 
+                parse_mode: 'Markdown', 
+                reply_markup: { inline_keyboard: inlineLayout } 
+            };
+
+            let numBtns = [];
+            for (let i = 1; i <= products.length; i++) {
+                numBtns.push({ text: i.toString() });
+            }
+            let bottomLayout = chunkArray(numBtns, 5); 
+            bottomLayout.unshift([{ text: '🏷️ Daftar Produk' }, { text: `💰 Saldo: Rp ${(user.balance || 0).toLocaleString('id-ID')}` }]); 
+
+            if (editMsgId) {
+                bot.editMessageText(txt, { chat_id: chatId, message_id: editMsgId, ...options }).catch(()=>{});
+            } else {
+                bot.sendMessage(chatId, txt, {
+                    ...options,
+                    reply_markup: {
+                        inline_keyboard: inlineLayout,
+                        keyboard: bottomLayout,
+                        resize_keyboard: true
+                    }
                 });
             }
-            htmlContent += `</div>`;
+        } finally { release(); }
+    }
+
+    async function renderVarMenu(product) {
+        let descText = (product.description && product.description.trim() !== '') ? `_${product.description}_\n\n` : '';
+        let text = `*${product.name}*\n${descText}`;
+        
+        let totalSold = product.variations.reduce((sum, v) => sum + (v.sold || 0), 0);
+        text += `${totalSold.toLocaleString('id-ID')} Sold\n\n`;
+        
+        let btns = [];
+        for (const v of product.variations) {
+            let stock = await getStockCount(v.id);
+            text += `${v.name} - Rp ${v.price.toLocaleString('id-ID')} (Stock: ${stock})\n`;
+            
+            let wList = v.wholesales || [];
+            if(wList.length === 0 && v.wholesaleMinQty && v.wholesalePrice) {
+                wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
+            }
+            if (wList.length > 0) {
+                let sortedW = [...wList].sort((a,b) => a.minQty - b.minQty);
+                for(const w of sortedW) {
+                    text += ` └ _(Min. ${w.minQty} ➔ Rp ${w.price.toLocaleString('id-ID')}/item)_\n`;
+                }
+            }
+            text += `\n`; 
+            btns.push({ text: v.name, callback_data: `sel|${v.id}` });
+        }
+        
+        text = text.trimEnd(); 
+        text += `\n\n_Updated ${moment().format('HH:mm:ss')} WIB_`;
+        
+        let layout = chunkArray(btns, 2); 
+        layout.push([{ text: 'Back', callback_data: `back_main` }]);
+        return { text, reply_markup: { inline_keyboard: layout } };
+    }
+
+    function renderOrder(product, v, qty, stock) {
+        let calc = calculatePrice(v, qty);
+        let unitPriceDisplay = calc.isGrosir ? calc.finalPrice : calc.baseVPrice;
+        let grosirNote = calc.isGrosir ? ' *(Harga Grosir)*' : '';
+        let text = `*RINGKASAN PESANAN*\n\n`;
+        text += `*Produk*  : ${product.name}\n`;
+        text += `*Varian*  : ${v.name}\n\n`;
+        text += `*Harga Satuan* : Rp ${unitPriceDisplay.toLocaleString('id-ID')}${grosirNote}\n`;
+        text += `*Stok Tersedia*  : ${stock}\n\n`;
+        text += `*Jumlah Beli*  : x${qty}\n`;
+        text += `*Total Pembayaran : Rp ${calc.total.toLocaleString('id-ID')}*\n\n`;
+        
+        return {
+            text, 
+            reply_markup: { inline_keyboard: [
+                [
+                    { text: '+ 1', callback_data: `qty|+1|${v.id}|${qty}` },
+                    { text: '+ 10', callback_data: `qty|+10|${v.id}|${qty}` },
+                    { text: '+ 100', callback_data: `qty|+100|${v.id}|${qty}` }
+                ],
+                [
+                    { text: '- 1', callback_data: `qty|-1|${v.id}|${qty}` },
+                    { text: '- 10', callback_data: `qty|-10|${v.id}|${qty}` },
+                    { text: '- 100', callback_data: `qty|-100|${v.id}|${qty}` }
+                ],
+                [
+                    { text: 'Refresh Stok', callback_data: `qty|+0|${v.id}|${qty}` }
+                ],
+                [
+                    { text: 'BAYAR SALDO', callback_data: `pay|saldo|${v.id}|${qty}` },
+                    { text: 'BAYAR QRIS', callback_data: `pay|qris|${v.id}|${qty}` }
+                ],
+                [
+                    { text: 'Batal / Kembali', callback_data: `back_var|${product.slug}` }
+                ]
+            ]}
+        };
+    }
+
+    bot.onText(/\/start|🏠 Menu/, async (msg) => {
+        return sendMainMenu(msg.chat.id, msg.from, 1);
+    });
+
+    bot.onText(/\/backup/, async (msg) => {
+        const config = await readConfig();
+        if (config.adminId && msg.from.id.toString() === config.adminId.toString()) {
+            bot.sendMessage(msg.chat.id, "📦 Memproses ZIP backup seluruh database...");
+            await sendDatabaseBackup(msg.chat.id);
+        } else {
+            bot.sendMessage(msg.chat.id, "❌ Perintah khusus Admin.");
+        }
+    });
+
+    bot.on('message', async (msg) => {
+        if (!msg.text) return;
+        const chatId = msg.chat.id;
+
+        if (msg.text === '🏷️ Daftar Produk' || msg.text === '🏠 Menu Utama' || msg.text === '🏷️ List Produk') {
+            return sendMainMenu(chatId, msg.from, 1); 
+        } else if (msg.text === '💰 Cek Saldo' || msg.text.startsWith('💰 Saldo:')) {
+            let users = await readDB(paths.users); 
+            let user = users.find(u => u.id === msg.from.id) || { balance: 0 };
+            bot.sendMessage(msg.chat.id, `Saldo Akun Anda: **Rp ${(user.balance || 0).toLocaleString('id-ID')}**`, { parse_mode: 'Markdown' }); 
+        } 
+        else if (msg.reply_to_message && msg.reply_to_message.text && msg.reply_to_message.text.includes('CUSTOM QUANTITY')) {
+            const userId = msg.from.id;
+            const newQty = parseInt(msg.text);
+            
+            if (isNaN(newQty) || newQty < 1) {
+                return bot.sendMessage(msg.chat.id, `❌ Masukkan angka jumlah yang valid (minimal 1).`);
+            }
+            
+            if (!global.customQtySessions || !global.customQtySessions[userId]) {
+                return bot.sendMessage(msg.chat.id, `⚠️ Sesi kedaluwarsa. Silakan ulangi tombol Custom Qty dari menu pesanan.`);
+            }
+            
+            const session = global.customQtySessions[userId];
+            let products = await readDB(paths.products);
+            let targetProd = null, targetVar = null;
+            
+            for (const p of products) {
+                if (p.variations) {
+                    const found = p.variations.find(v => v.id === session.varId);
+                    if (found) {
+                        targetProd = p;
+                        targetVar = found;
+                        break;
+                    }
+                }
+            }
+            
+            if (!targetVar) {
+                return bot.sendMessage(msg.chat.id, `❌ Variasi produk tidak ditemukan.`);
+            }
+            
+            const stockCount = await getStockCount(targetVar.id);
+            if (newQty > stockCount) {
+                return bot.sendMessage(msg.chat.id, `❌ *Stok Tidak Cukup!*\n\nJumlah yang kamu minta (${newQty}) melebihi stok tersedia (${stockCount} Tersedia). Silakan masukkan angka yang lebih kecil.`, { parse_mode: 'Markdown' });
+            }
+            
+            bot.deleteMessage(msg.chat.id, msg.message_id).catch(()=>{});
+            bot.deleteMessage(msg.chat.id, msg.reply_to_message.message_id).catch(()=>{});
+            
+            const updatedOrder = renderOrder(targetProd, targetVar, newQty, stockCount);
+            
+            bot.editMessageText(updatedOrder.text, {
+                chat_id: session.chatId,
+                message_id: session.msgId,
+                parse_mode: 'Markdown',
+                reply_markup: updatedOrder.reply_markup
+            }).catch(()=>{});
+            
+            delete global.customQtySessions[userId];
+        }
+    });
+
+    bot.onText(/^(\d+)$/, async (msg, match) => {
+        if (msg.reply_to_message) return;
+        
+        let products = await readDB(paths.products);
+        let num = parseInt(match[1]);
+        if (num > 0 && num <= products.length) {
+            const { text, reply_markup } = await renderVarMenu(products[num - 1]);
+            bot.sendMessage(msg.chat.id, text, { parse_mode: 'Markdown', reply_markup });
+        }
+    });
+
+    bot.on('callback_query', async (query) => {
+        const chatId = query.message.chat.id; 
+        const msgId = query.message.message_id;
+        const parts = query.data.split('|'); 
+        const action = parts[0]; 
+
+        if (action === 'main_page') {
+            const page = parseInt(parts[1]);
+            bot.answerCallbackQuery(query.id);
+            return sendMainMenu(chatId, query.from, page, msgId);
+        }
+
+        if (action === 'back_main') { 
+            bot.deleteMessage(chatId, msgId).catch(()=>{}); 
+            bot.answerCallbackQuery(query.id);
+            if (!global.userPages) global.userPages = {};
+            let currentPage = global.userPages[chatId] || 1;
+            return sendMainMenu(chatId, query.from, currentPage); 
+        }
+
+        let products = await readDB(paths.products);
+
+        if (action === 'back_var') {
+            const prod = products.find(p => p.slug === parts[1]);
+            if (prod) { 
+                const { text, reply_markup } = await renderVarMenu(prod); 
+                bot.editMessageText(text, { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', reply_markup }).catch(()=>{}); 
+            }
+            return bot.answerCallbackQuery(query.id);
+        }
+
+        if (action === 'batal_qris') {
+            bot.answerCallbackQuery(query.id, { text: "Pesanan dibatalkan." }); 
+            bot.deleteMessage(chatId, msgId).catch(()=>{});
+            const release = await dbLock.acquire();
+            try {
+                let pQris = await readDB(paths.pending_qris); 
+                const idx = pQris.findIndex(o => o.order_id === parts[1]);
+                if (idx !== -1) {
+                    const sp = path.join(paths.stocks, `stock_${pQris[idx].var_id}.json`); 
+                    let sd = await readDB(sp);
+                    sd.push(...pQris[idx].reserved_accounts); 
+                    await fs.writeFile(sp, JSON.stringify(sd, null, 2));
+                    pQris.splice(idx, 1); 
+                    await fs.writeFile(paths.pending_qris, JSON.stringify(pQris, null, 2));
+                }
+            } finally { release(); }
+            
+            if (!global.userPages) global.userPages = {};
+            let currentPage = global.userPages[chatId] || 1;
+            return sendMainMenu(chatId, query.from, currentPage); 
+        }
+
+        let selProd = null, selVar = null;
+        let vId = (action === 'qty' || action === 'pay') ? parts[2] : null; 
+        if(action === 'sel') vId = parts[1];
+        
+        for (const p of products) { 
+            if (p.variations) { 
+                const f = p.variations.find(v => v.id === vId); 
+                if (f) { selProd = p; selVar = f; break; } 
+            } 
+        }
+        
+        if (!selVar && action !== 'main_page' && action !== 'back_main' && action !== 'back_var' && action !== 'batal_qris') {
+            return bot.answerCallbackQuery(query.id, { text: "Error: Variasi tidak ditemukan" });
+        }
+        const stockCount = selVar ? await getStockCount(selVar.id) : 0;
+
+        if (action === 'sel' || action === 'qty') {
+            let qty = action === 'sel' ? 1 : parseInt(parts[3]);
+            if (action === 'qty') { 
+                const op = parts[1]; 
+                if (op === '+1') qty += 1; 
+                else if (op === '+10') qty += 10;
+                else if (op === '+100') qty += 100;
+                else if (op === '-1') qty -= 1;
+                else if (op === '-10') qty -= 10;
+                else if (op === '-100') qty -= 100;
+            }
+            if (qty < 1) qty = 1; 
+            if (qty > stockCount) { 
+                qty = stockCount; 
+                bot.answerCallbackQuery(query.id, { text: "Stok maksimal telah tercapai!" }); 
+            } else { 
+                bot.answerCallbackQuery(query.id); 
+            }
+            
+            const { text, reply_markup } = renderOrder(selProd, selVar, qty, stockCount);
+            bot.editMessageText(text, { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', reply_markup }).catch(()=>{});
+        } 
+        else if (action === 'pay') {
+            const finalQty = parseInt(parts[3]);
+            const calcData = calculatePrice(selVar, finalQty);
+            const basePrice = calcData.total;
+            
+            if (finalQty > stockCount || stockCount === 0) return bot.answerCallbackQuery(query.id, { text: "Maaf, stok barang sedang kosong.", show_alert: true });
+            
+            const dateStr = moment().format('DDMMYYYY');
+            const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
+            
+            if (parts[1] === 'saldo') {
+                const cfg = await readConfig(); 
+                const prefix = cfg.trxPrefix || "BR"; 
+                const release = await dbLock.acquire(); 
+                try {
+                    let users = await readDB(paths.users); 
+                    let userIndex = users.findIndex(u => u.id === query.from.id); 
+                    let user = users[userIndex];
+                    
+                    if (!user || (user.balance || 0) < basePrice) {
+                        bot.answerCallbackQuery(query.id, { text: "❌ Saldo Anda tidak mencukupi untuk pembelian ini.", show_alert: true });
+                        return bot.sendMessage(chatId, `❌ Saldo Anda tidak mencukupi.`);
+                    }
+                    
+                    bot.answerCallbackQuery(query.id);
+                    const sp = path.join(paths.stocks, `stock_${selVar.id}.json`); 
+                    let sd = await readDB(sp);
+                    user.balance -= basePrice; 
+                    user.trx_count = (user.trx_count || 0) + basePrice; 
+                    await fs.writeFile(paths.users, JSON.stringify(users, null, 2));
+                    
+                    const accs = sd.splice(0, finalQty); 
+                    await fs.writeFile(sp, JSON.stringify(sd, null, 2));
+                    
+                    let oid = `${prefix}-${dateStr}-${randomStr}`;
+                    
+                    await finalizeOrderSuccess({
+                        order_id: oid,
+                        user_id: user.id,
+                        var_id: selVar.id,
+                        qty: finalQty,
+                        total: basePrice,
+                        reserved_accounts: accs,
+                        msg_id: null
+                    }, 'balance', 'PEMBAYARAN BERHASIL (LUNAS)');
+
+                } finally { release(); }
+            } else if (parts[1] === 'qris') {
+                const cfg = await readConfig(); 
+                const prefix = cfg.trxPrefix || "BR"; 
+                if (!cfg.qrisString) {
+                    bot.answerCallbackQuery(query.id, { text: "QRIS belum diatur oleh Admin.", show_alert: true }); 
+                    return bot.sendMessage(chatId, "QRIS belum diatur oleh Admin.");
+                }
+                
+                const release = await dbLock.acquire();
+                try {
+                    const sp = path.join(paths.stocks, `stock_${selVar.id}.json`); 
+                    let sd = await readDB(sp);
+                    const resAccs = sd.splice(0, finalQty); 
+                    await fs.writeFile(sp, JSON.stringify(sd, null, 2));
+                    
+                    const kodeUnik = Math.floor(Math.random() * 20) + 1; 
+                    const finalTotal = basePrice + kodeUnik; 
+                    const oid = `${prefix}-${dateStr}-${randomStr}`;
+                    const dynamicQrisString = makeDynamicQris(cfg.qrisString, finalTotal);
+                    
+                    let pq = await readDB(paths.pending_qris);
+                    
+                    const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(dynamicQrisString)}&size=400&margin=2`;
+                    const cap = `*INVOICE PEMBAYARAN*\n\`${oid}\`\n\nProduk: ${selProd.name}\nVariasi: ${selVar.name}\nJumlah: ${finalQty}x\nTotal: Rp. ${finalTotal.toLocaleString('id-ID')}`;
+                    
+                    bot.answerCallbackQuery(query.id); 
+                    bot.deleteMessage(chatId, msgId).catch(()=>{});
+                    
+                    const sentMsg = await bot.sendPhoto(chatId, qrUrl, { caption: cap, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: 'Batalkan Pesanan', callback_data: `batal_qris|${oid}` }]] } });
+                    
+                    pq.push({ 
+                        order_id: oid, 
+                        user_id: query.from.id, 
+                        var_id: selVar.id, 
+                        qty: finalQty, 
+                        total: finalTotal, 
+                        reserved_accounts: resAccs, 
+                        status: 'pending', 
+                        date: moment().format('YYYY-MM-DD HH:mm:ss'),
+                        timestamp: Date.now(),
+                        msg_id: sentMsg.message_id
+                    });
+                    await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
+
+                } finally { release(); }
+            }
+        }
+    });
+}
+
+// ==========================================
+// ENDPOINT API & DASHBOARD (TANPA LOGIN)
+// ==========================================
+app.get('/', (req, res) => res.redirect('/admin'));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/owner', (req, res) => res.redirect('/admin'));
+
+// Mock Auth API (agar script HTML tidak error saat cek sesi)
+app.get('/api/auth/me', (req, res) => { 
+    res.json({ user: { username: 'Admin', role: 'owner' } }); 
+});
+
+app.get('/api/bots', async (req, res) => { 
+    const config = await readConfig(); 
+    res.json([{ botId: 'brstore_store', NAMA_TOKO: config.storeName || "BR STORE", isRunning: bot !== null }]); 
+});
+
+app.get('/api/bot/stats', async (req, res) => {
+    const config = await readConfig(); 
+    const users = await readDB(paths.users); 
+    const orders = await readDB(paths.orders); 
+    const products = await readDB(paths.products);
+    
+    let totalRev = orders.reduce((s, o) => s + o.total, 0); 
+    let totalStock = 0;
+    let totalSold = orders.reduce((s, o) => s + (o.qty || 1), 0);
+    
+    try { 
+        const stockFiles = await fs.readdir(paths.stocks); 
+        for (const file of stockFiles) { 
+            if (file.endsWith('.json')) { 
+                const stockData = await readDB(path.join(paths.stocks, file)); 
+                if (Array.isArray(stockData)) totalStock += stockData.length; 
+            } 
+        } 
+    } catch (e) { } 
+    
+    res.json({ 
+        isRunning: bot !== null, 
+        storeName: config.storeName, 
+        totalUsers: users.length, 
+        totalProducts: products.length, 
+        totalOrders: orders.length, 
+        revenue: totalRev, 
+        totalStock: totalStock,
+        totalSold: totalSold
+    });
+});
+
+app.get('/api/bot/config', async (req, res) => res.json(await readConfig()));
+
+app.post('/api/bot/config', async (req, res) => {
+    let cfg = await readConfig(); 
+    cfg = { ...cfg, ...req.body }; 
+    await fs.writeFile(paths.config, JSON.stringify(cfg, null, 2));
+    if (req.body.token !== undefined) setupTelegramBot(); 
+    res.json({ success: true });
+});
+
+app.get('/api/bot/products', async (req, res) => res.json(await readDB(paths.products)));
+
+app.post('/api/bot/products', async (req, res) => {
+    let p = await readDB(paths.products); 
+    p.push({ ...req.body, variations: [] });
+    await fs.writeFile(paths.products, JSON.stringify(p, null, 2)); 
+    res.json({ success: true });
+});
+
+app.put('/api/bot/products/:slug', async (req, res) => {
+    let p = await readDB(paths.products); 
+    const idx = p.findIndex(x => x.slug === req.params.slug);
+    if(idx !== -1) {
+        if(req.body.name !== undefined) p[idx].name = req.body.name;
+        if(req.body.description !== undefined) p[idx].description = req.body.description;
+        await fs.writeFile(paths.products, JSON.stringify(p, null, 2));
+    }
+    res.json({ success: true });
+});
+
+app.delete('/api/bot/products/:slug', async (req, res) => {
+    let p = await readDB(paths.products); 
+    p = p.filter(x => x.slug !== req.params.slug);
+    await fs.writeFile(paths.products, JSON.stringify(p, null, 2)); 
+    res.json({ success: true });
+});
+
+app.post('/api/bot/products/:slug/variations', async (req, res) => {
+    let p = await readDB(paths.products); 
+    const f = p.find(x => x.slug === req.params.slug);
+    if(f) { 
+        f.variations.push({ id: `var_${Date.now()}`, ...req.body, price: parseInt(req.body.price), wholesales: [], sold: 0 }); 
+        await fs.writeFile(paths.products, JSON.stringify(p, null, 2)); 
+    }
+    res.json({ success: true });
+});
+
+app.put('/api/bot/products/:slug/variations/:varId', async (req, res) => {
+    let p = await readDB(paths.products); 
+    const f = p.find(x => x.slug === req.params.slug);
+    if(f) {
+        const v = f.variations.find(x => x.id === req.params.varId);
+        if(v) {
+            if(req.body.name !== undefined) v.name = req.body.name;
+            if(req.body.price !== undefined) v.price = parseInt(req.body.price);
+            
+            if(req.body.wholesales !== undefined) {
+                v.wholesales = req.body.wholesales;
+                delete v.wholesaleMinQty;
+                delete v.wholesalePrice;
+            }
+            await fs.writeFile(paths.products, JSON.stringify(p, null, 2));
+        }
+    }
+    res.json({ success: true });
+});
+
+app.delete('/api/bot/products/:slug/variations/:varId', async (req, res) => {
+    let p = await readDB(paths.products); 
+    const f = p.find(x => x.slug === req.params.slug);
+    if(f) { 
+        f.variations = f.variations.filter(v => v.id !== req.params.varId); 
+        await fs.writeFile(paths.products, JSON.stringify(p, null, 2)); 
+    }
+    res.json({ success: true });
+});
+
+app.get('/api/bot/stock/:id', async (req, res) => { 
+    let d = await readDB(path.join(paths.stocks, `stock_${req.params.id}.json`)); 
+    res.json({ count: d.length || 0, codes: d || [] }); 
+});
+
+app.post('/api/bot/stock/:id', async (req, res) => { 
+    const p = path.join(paths.stocks, `stock_${req.params.id}.json`); 
+    let d = await readDB(p); 
+    d.push(...req.body.codes.split('\n').filter(c=>c.trim())); 
+    await fs.writeFile(p, JSON.stringify(d, null, 2)); 
+    res.json({ success: true }); 
+});
+
+app.get('/api/bot/users', async (req, res) => { 
+    const users = await readDB(paths.users); 
+    res.json(users.map(u => ({ 
+        userId: u.id, 
+        username: u.username || "", 
+        firstName: u.first_name || "—", 
+        firstSeen: u.joined_at || "—", 
+        balance: u.balance || 0 
+    }))); 
+});
+
+app.post('/api/bot/balance/:id/add', async (req, res) => { 
+    let u = await readDB(paths.users); 
+    const targetId = parseInt(req.params.id);
+    const i = u.findIndex(x => x.id === targetId); 
+    if(i > -1) { 
+        u[i].balance = (u[i].balance || 0) + parseInt(req.body.amount); 
+        await fs.writeFile(paths.users, JSON.stringify(u, null, 2)); 
+    } 
+    res.json({ success: true }); 
+});
+
+// ==========================================
+// ENDPOINT: BROADCAST PESAN KE SEMUA USER
+// ==========================================
+app.post('/api/bot/broadcast', async (req, res) => {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'Pesan tidak boleh kosong' });
+
+    const release = await dbLock.acquire();
+    try {
+        const users = await readDB(paths.users);
+        if (users.length === 0) return res.status(400).json({ error: 'Tidak ada user untuk dibroadcast' });
+
+        res.json({ success: true, total: users.length, message: 'Broadcast sedang berjalan di latar belakang...' });
+
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (let i = 0; i < users.length; i++) {
+            try {
+                await bot.sendMessage(users[i].id, message, { parse_mode: 'Markdown' });
+                successCount++;
+            } catch (err) {
+                failCount++;
+            }
+            await new Promise(resolve => setTimeout(resolve, 50)); 
+        }
+        console.log(`📢 [BROADCAST SELESAI] Mengirim ke ${users.length} user. Sukses: ${successCount}, Gagal/Blokir: ${failCount}`);
+
+    } catch (err) {
+        console.error('❌ [BROADCAST ERROR]:', err.message);
+    } finally {
+        release();
+    }
+});
+
+// ==========================================
+// HELPER: PROSES PESANAN SUKSES
+// ==========================================
+async function finalizeOrderSuccess(orderData, paymentMethod, successTitle) {
+    const config = await readConfig();
+    let p = await readDB(paths.products); 
+    let selProd = { name: "Unknown" }, selVar = { name: "Unknown" };
+    
+    for (const pr of p) { 
+        if (pr.variations) { 
+            const f = pr.variations.find(v => v.id === orderData.var_id); 
+            if (f) { 
+                selProd = pr; 
+                selVar = f; 
+                f.sold = (f.sold || 0) + orderData.qty; 
+                break; 
+            } 
+        } 
+    }
+    await fs.writeFile(paths.products, JSON.stringify(p, null, 2));
+    
+    let orders = await readDB(paths.orders);
+    orders.push({ 
+        order_id: orderData.order_id, 
+        user_id: orderData.user_id, 
+        product: `${selProd.name} - ${selVar.name}`, 
+        qty: orderData.qty, 
+        total: orderData.total, 
+        date: moment().format('YYYY-MM-DD HH:mm'), 
+        paymentMethod: paymentMethod,
+        accounts: orderData.reserved_accounts 
+    });
+    await fs.writeFile(paths.orders, JSON.stringify(orders, null, 2));
+    
+    let noteText = selProd.name.toLowerCase().includes('youtube') ? `\n\n⚠️ *CATATAN PENTING:*\nJangan mengubah password atau login ke akun selama **1-5 menit** ke depan. Sistem kami sedang memproses aktivasi Premium otomatis di belakang layar.` : '';
+    
+    if (bot) {
+        let strukLunas = `✅ *${successTitle}* ✅\n\n`;
+        strukLunas += `🧾 *No. Invoice:* \`${orderData.order_id}\`\n`;
+        strukLunas += `🗓️ *Tanggal:* ${moment().format('DD/MM/YYYY HH:mm')}\n\n`;
+        strukLunas += `🎁 *DETAIL PESANAN KAMU:*\n`;
+        strukLunas += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        
+        if (orderData.reserved_accounts.length > 5) {
+            strukLunas += `📄 _Detail akun terlampir pada file/dokumen di bawah ini._\n`;
+        } else {
+            strukLunas += `${orderData.reserved_accounts.join('\n')}\n`;
+        }
+
+        strukLunas += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        strukLunas += `Terima kasih telah berbelanja di *${config.storeName}*! 🙏${noteText}`;
+
+        bot.sendMessage(orderData.user_id, strukLunas, { parse_mode: 'Markdown' });
+        
+        if (orderData.reserved_accounts.length > 5) {
+            const fileBuffer = Buffer.from(orderData.reserved_accounts.join('\n'), 'utf-8');
+            bot.sendDocument(orderData.user_id, fileBuffer, {}, {
+                filename: `Akun_${orderData.order_id}.txt`,
+                contentType: 'text/plain'
+            });
+        }
+
+        if (orderData.msg_id) bot.deleteMessage(orderData.user_id, orderData.msg_id).catch(()=>{});
+    }
+
+    if (selProd.name.toLowerCase().includes('youtube')) {
+        if (orderData.qty <= 100) {
+            runAutoPayQuietly(orderData.reserved_accounts);
+        } else {
+            console.log(`⚠️ [SYSTEM] Order ${orderData.order_id} lebih dari 100 akun (${orderData.qty}). Auto Pay dibatalkan agar server tidak overload.`);
+        }
+    }
+}
+
+app.get('/api/bot/pending', async (req, res) => {
+    res.json(await readDB(paths.pending_qris));
+});
+
+app.post('/api/bot/pending/:id/approve', async (req, res) => {
+    const release = await dbLock.acquire(); 
+    try {
+        let pq = await readDB(paths.pending_qris);
+        const idx = pq.findIndex(o => o.order_id === req.params.id);
+        if (idx === -1) return res.status(404).json({ error: 'Pesanan tidak ditemukan atau sudah expired' });
+        
+        const orderData = pq[idx];
+        await finalizeOrderSuccess(orderData, 'qris_manual', 'PEMBAYARAN DISETUJUI MANUAL');
+
+        pq.splice(idx, 1); 
+        await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
+        res.json({ success: true });
+
+    } finally { release(); }
+});
+
+app.post('/api/bot/pending/:id/reject', async (req, res) => {
+    const release = await dbLock.acquire();
+    try {
+        let pq = await readDB(paths.pending_qris);
+        const idx = pq.findIndex(o => o.order_id === req.params.id);
+        if (idx === -1) return res.status(404).json({ error: 'Not found' });
+        
+        const orderData = pq[idx];
+        const sp = path.join(paths.stocks, `stock_${orderData.var_id}.json`); 
+        let sd = await readDB(sp);
+        sd.push(...orderData.reserved_accounts); 
+        await fs.writeFile(sp, JSON.stringify(sd, null, 2));
+        
+        if (bot) bot.sendMessage(orderData.user_id, `❌ *PEMBAYARAN DITOLAK*\n\nInvoice: \`${orderData.order_id}\`\nPesanan dibatalkan oleh admin dan stok telah dikembalikan.`, { parse_mode: 'Markdown' });
+        if (bot && orderData.msg_id) bot.deleteMessage(orderData.user_id, orderData.msg_id).catch(()=>{});
+
+        pq.splice(idx, 1); 
+        await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
+        res.json({ success: true });
+    } finally { release(); }
+});
+
+app.get('/api/bot/transactions', async (req, res) => { 
+    const orders = await readDB(paths.orders);
+    res.json(orders.map(o => ({ 
+        trxId: o.order_id, 
+        userId: o.user_id, 
+        product: o.product, 
+        paymentMethod: o.paymentMethod || 'balance', 
+        amount: o.total, 
+        purchaseDate: o.date, 
+        accounts: o.accounts || [] 
+    }))); 
+});
+
+// WEBHOOK DANA
+app.post('/dana-webhook', async (req, res) => {
+    const text = req.body.message || req.body.text || JSON.stringify(req.body);
+    const match = text.match(/Rp\s*([\d\.]+)/i); 
+    if (!match) return res.send("Abaikan");
+    
+    const amount = parseInt(match[1].replace(/\./g, ''));
+    
+    const release = await dbLock.acquire(); 
+    try {
+        let pq = await readDB(paths.pending_qris); 
+        const idx = pq.findIndex(o => o.total === amount);
+        
+        if (idx !== -1) {
+            const orderData = pq[idx]; 
+            await finalizeOrderSuccess(orderData, 'qris', 'PEMBAYARAN DANA TERDETEKSI! (LUNAS)');
+
+            pq.splice(idx, 1); 
+            await fs.writeFile(paths.pending_qris, JSON.stringify(pq, null, 2));
+            return res.send("Sukses");
+        }
+    } finally {
+        release(); 
+    }
+    
+    res.send("Not Found");
+});
+
+app.get('/api/bot/autopay/test', async (req, res) => {
+    try {
+        const config = await readConfig();
+        if (!config.autoPayUrl || !config.autoPaySecret) {
+            return res.json({ 
+                success: false, 
+                error: 'URL Auto Pay atau API Secret belum diatur di Config.' 
+            });
+        }
+
+        let baseUrl = config.autoPayUrl
+            .replace(/\/api\/trigger-autopay\/?$/, '')
+            .replace(/\/trigger-autopay\/?$/, '')
+            .replace(/\/api\/?$/, '');
+        let targetUrl = `${baseUrl}/api/check-failed`;
+
+        console.log(`🔍 [DEBUG TEST] Mencoba menghubungi: ${targetUrl}`);
+
+        const response = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { 'x-api-key': config.autoPaySecret }
         });
-        container.innerHTML = htmlContent;
-    } catch (e) { console.error("Error loading products", e); }
-  }
 
-  document.getElementById('addProductForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      await fetch(`/api/bot/products`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ slug: document.getElementById('productSlug').value, name: document.getElementById('productName').value, description: document.getElementById('productDesc').value }) 
-      }); 
-      hideModal('addProductModal'); 
-      loadProducts(); 
-      e.target.reset(); 
-      showToast('✅ Product created!'); 
-  });
-  
-  function showEditProductModal(slug) { 
-      const p = allProducts.find(x => x.slug === slug); 
-      if(!p) return; 
-      document.getElementById('editProdSlug').value = p.slug; 
-      document.getElementById('editProdName').value = p.name; 
-      document.getElementById('editProdDesc').value = p.description || ''; 
-      showModal('editProductModal'); 
-  }
-  
-  document.getElementById('editProductForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      await fetch(`/api/bot/products/${document.getElementById('editProdSlug').value}`, { 
-          method: 'PUT', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ name: document.getElementById('editProdName').value, description: document.getElementById('editProdDesc').value }) 
-      }); 
-      hideModal('editProductModal'); 
-      loadProducts(); 
-      showToast('✅ Product updated!'); 
-  });
+        const responseText = await response.text();
+        if (response.ok) {
+            return res.json({ 
+                success: true, 
+                message: 'API berhasil terhubung dan merespons dengan baik!' 
+            });
+        } else {
+            return res.json({ 
+                success: false, 
+                error: `Server menolak (Status ${response.status}): ${responseText}` 
+            });
+        }
+    } catch (err) {
+        return res.json({ success: false, error: `Gagal terhubung: ${err.message}` });
+    }
+});
 
-  async function deleteProduct(slug) { 
-      if (!confirm(`Delete product?`)) return; 
-      await fetch(`/api/bot/products/${slug}`, { method: 'DELETE' }); 
-      loadProducts(); 
-  }
+app.get('/api/bot/autopay/failed', async (req, res) => {
+    try {
+        const config = await readConfig();
+        if (!config.autoPayUrl || !config.autoPaySecret) {
+            return res.json({ accounts: [] });
+        }
 
-  function showAddVariationModal(slug) { 
-      document.getElementById('variationProductSlug').value = slug; 
-      showModal('addVariationModal'); 
-  }
-  
-  document.getElementById('addVariationForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      await fetch(`/api/bot/products/${document.getElementById('variationProductSlug').value}/variations`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ name: document.getElementById('variationName').value, price: parseInt(document.getElementById('variationPrice').value) }) 
-      }); 
-      hideModal('addVariationModal'); 
-      loadProducts(); 
-      e.target.reset(); 
-      showToast('✅ Variation added!'); 
-  });
+        let baseUrl = config.autoPayUrl
+            .replace(/\/api\/trigger-autopay\/?$/, '')
+            .replace(/\/trigger-autopay\/?$/, '')
+            .replace(/\/api\/?$/, '');
+        let targetUrl = `${baseUrl}/api/check-failed`;
 
-  function showEditVariationModal(slug, varId) { 
-      const p = allProducts.find(x => x.slug === slug); 
-      const v = p.variations.find(x => x.id === varId); 
-      document.getElementById('editVarProdSlug').value = slug; 
-      document.getElementById('editVarId').value = varId; 
-      document.getElementById('editVarName').value = v.name; 
-      document.getElementById('editVarPrice').value = v.price; 
-      showModal('editVariationModal'); 
-  }
-  
-  document.getElementById('editVariationForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      await fetch(`/api/bot/products/${document.getElementById('editVarProdSlug').value}/variations/${document.getElementById('editVarId').value}`, { 
-          method: 'PUT', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ name: document.getElementById('editVarName').value, price: parseInt(document.getElementById('editVarPrice').value) }) 
-      }); 
-      hideModal('editVariationModal'); 
-      loadProducts(); 
-      showToast('✅ Variation updated!'); 
-  });
+        const response = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { 'x-api-key': config.autoPaySecret }
+        });
 
-  // --- MENGELOLA MODAL GROSIR MULTI-TIER ---
-  function showVariationDiscountModal(slug, varId) { 
-      const p = allProducts.find(x => x.slug === slug); 
-      const v = p.variations.find(x => x.id === varId); 
-      document.getElementById('discVarProdSlug').value = slug; 
-      document.getElementById('discVarId').value = varId; 
-      
-      document.getElementById('discMin1').value = '';
-      document.getElementById('discPrice1').value = '';
-      document.getElementById('discMin2').value = '';
-      document.getElementById('discPrice2').value = '';
-      document.getElementById('discMin3').value = '';
-      document.getElementById('discPrice3').value = '';
+        const responseText = await response.text();
+        
+        try {
+            const data = JSON.parse(responseText);
+            let accounts = data.accounts || [];
+            
+            if (accounts.length > 100) {
+                accounts = accounts.slice(0, 100);
+            }
 
-      let wList = [];
-      if (v.wholesales && v.wholesales.length > 0) {
-          wList = v.wholesales;
-      } else if (v.wholesaleMinQty && v.wholesalePrice) {
-          wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
-      }
+            return res.json({ accounts });
+        } catch (e) {
+            return res.json({ accounts: [] });
+        }
+    } catch (err) {
+        return res.json({ accounts: [] });
+    }
+});
 
-      if(wList[0]) {
-          document.getElementById('discMin1').value = wList[0].minQty;
-          document.getElementById('discPrice1').value = wList[0].price;
-      }
-      if(wList[1]) {
-          document.getElementById('discMin2').value = wList[1].minQty;
-          document.getElementById('discPrice2').value = wList[1].price;
-      }
-      if(wList[2]) {
-          document.getElementById('discMin3').value = wList[2].minQty;
-          document.getElementById('discPrice3').value = wList[2].price;
-      }
+app.post('/api/bot/autopay/retry', async (req, res) => {
+    try {
+        const config = await readConfig();
+        if (!config.autoPayUrl || !config.autoPaySecret) {
+            return res.status(400).json({ success: false, error: 'URL Auto Pay belum diatur di Config.' });
+        }
 
-      showModal('variationDiscountModal'); 
-  }
-  
-  document.getElementById('variationDiscountForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      
-      let wholesales = [];
-      
-      let min1 = parseInt(document.getElementById('discMin1').value);
-      let price1 = parseInt(document.getElementById('discPrice1').value);
-      if(!isNaN(min1) && !isNaN(price1)) wholesales.push({minQty: min1, price: price1});
-      
-      let min2 = parseInt(document.getElementById('discMin2').value);
-      let price2 = parseInt(document.getElementById('discPrice2').value);
-      if(!isNaN(min2) && !isNaN(price2)) wholesales.push({minQty: min2, price: price2});
-      
-      let min3 = parseInt(document.getElementById('discMin3').value);
-      let price3 = parseInt(document.getElementById('discPrice3').value);
-      if(!isNaN(min3) && !isNaN(price3)) wholesales.push({minQty: min3, price: price3});
+        let baseUrl = config.autoPayUrl
+            .replace(/\/api\/trigger-autopay\/?$/, '')
+            .replace(/\/trigger-autopay\/?$/, '')
+            .replace(/\/api\/?$/, '');
+        let targetUrl = `${baseUrl}/api/retry-autopay`;
 
-      await fetch(`/api/bot/products/${document.getElementById('discVarProdSlug').value}/variations/${document.getElementById('discVarId').value}`, { 
-          method: 'PUT', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ wholesales: wholesales }) 
-      }); 
-      hideModal('variationDiscountModal'); 
-      loadProducts(); 
-      showToast('✅ Diskon Grosir Bertingkat disimpan!'); 
-  });
-  
-  async function clearVariationDiscount() { 
-      await fetch(`/api/bot/products/${document.getElementById('discVarProdSlug').value}/variations/${document.getElementById('discVarId').value}`, { 
-          method: 'PUT', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ wholesales: [] }) 
-      }); 
-      hideModal('variationDiscountModal'); 
-      loadProducts(); 
-      showToast('🗑️ Diskon dihapus!'); 
-  }
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'x-api-key': config.autoPaySecret }
+        });
+        
+        const responseText = await response.text();
+        try {
+            const data = JSON.parse(responseText);
+            return res.json(data);
+        } catch (e) {
+            return res.status(400).json({ success: false, error: 'Server B mengembalikan respon tidak valid (HTML).' });
+        }
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
 
-  async function deleteVariation(slug, varId) { 
-      await fetch(`/api/bot/products/${slug}/variations/${varId}`, { method: 'DELETE' }); 
-      loadProducts(); 
-  }
-
-  async function loadStockSelector() { 
-      try { 
-          const products = await fetch(`/api/bot/products`).then(r => r.json()); 
-          let html = '<option value="">— Choose variation —</option>'; 
-          for (const p of products) { 
-              for (const v of p.variations) { html += `<option value="${v.id}">${p.name} — ${v.name}</option>`; } 
-          } 
-          document.getElementById('stockVariationSelector').innerHTML = html; 
-          document.getElementById('stockDetails').innerHTML = ''; 
-      } catch (e) { } 
-  }
-  
-  async function loadStockForVariation() { 
-      const varId = document.getElementById('stockVariationSelector').value; 
-      if (!varId) return; 
-      const stock = await fetch(`/api/bot/stock/${varId}`).then(r => r.json()); 
-      let htmlStock = `<div style="display:flex;justify-content:space-between;margin:16px 0;align-items:center"><span style="font-size:22px;color:var(--accent);font-weight:bold">${stock.count} <span style="font-size:12px;color:var(--text3)">codes</span></span><button class="btn btn-primary" onclick="showAddStockModal('${varId}')">${iconPlus} Add Codes</button></div>`;
-      if (stock.count > 0) {
-          htmlStock += `<textarea class="stock-display" readonly>${stock.codes.join('\n')}</textarea>`;
-      } else {
-          htmlStock += `<div class="alert alert-info">Stock empty</div>`;
-      }
-      document.getElementById('stockDetails').innerHTML = htmlStock; 
-  }
-  
-  function showAddStockModal(varId) { 
-      document.getElementById('stockVariationId').value = varId; 
-      showModal('addStockModal'); 
-  }
-  
-  document.getElementById('addStockForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      await fetch(`/api/bot/stock/${document.getElementById('stockVariationId').value}`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ codes: document.getElementById('stockCodes').value }) 
-      }); 
-      hideModal('addStockModal'); 
-      loadStockForVariation(); 
-      e.target.reset(); 
-      showToast('✅ Stock added!'); 
-  });
-
-  function renderUsersTable(users) {
-      const tbody = document.getElementById('usersTable'); 
-      if (users.length === 0) return tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px">User tidak ditemukan</td></tr>'; 
-      tbody.innerHTML = users.map(user => `<tr><td><code>${user.userId}</code></td><td>${user.username ? `@${user.username}` : '—'}</td><td>${user.firstName || '—'}</td><td style="color:var(--text2);font-size:12px">${user.firstSeen}</td><td style="color:var(--accent);font-weight:bold">Rp ${(user.balance || 0).toLocaleString('id-ID')}</td><td><button class="btn btn-success" onclick="showAddBalanceModal(${user.userId})">+Saldo</button></td></tr>`).join(''); 
-  }
-
-  function filterUsers() {
-      const q = document.getElementById('userSearch').value.toLowerCase().trim();
-      if (!q) return renderUsersTable(allUsersData);
-      
-      const filtered = allUsersData.filter(user => 
-          (String(user.userId).includes(q)) || 
-          (user.username && user.username.toLowerCase().includes(q)) || 
-          (user.firstName && user.firstName.toLowerCase().includes(q))
-      );
-      renderUsersTable(filtered);
-  }
-
-  async function loadUsers() { 
-      try { 
-          allUsersData = await fetch(`/api/bot/users`).then(r => r.json()); 
-          renderUsersTable(allUsersData);
-      } catch (e) { } 
-  }
-  
-  function showAddBalanceModal(userId) { 
-      document.getElementById('balanceUserId').value = userId; 
-      showModal('addBalanceModal'); 
-  }
-  
-  document.getElementById('addBalanceForm').addEventListener('submit', async e => { 
-      e.preventDefault(); 
-      await fetch(`/api/bot/balance/${document.getElementById('balanceUserId').value}/add`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ amount: parseInt(document.getElementById('balanceAmount').value) }) 
-      }); 
-      hideModal('addBalanceModal'); 
-      loadUsers(); 
-      e.target.reset(); 
-      showToast('✅ Balance added!'); 
-  });
-
-  async function loadPendingQris() {
-      try {
-          const pending = await fetch('/api/bot/pending').then(r => r.json());
-          const tbody = document.getElementById('pendingTable');
-          if (pending.length === 0) return tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Belum ada pembayaran QRIS yang pending</td></tr>';
-          tbody.innerHTML = pending.reverse().map(p => `
-              <tr>
-                  <td><code style="font-size:10px">${p.order_id}</code></td>
-                  <td>${p.user_id}</td>
-                  <td style="color:var(--text2)">${p.var_id}</td>
-                  <td style="color:var(--accent4)">Rp ${(p.total||0).toLocaleString('id-ID')}</td>
-                  <td style="color:var(--text2);font-size:12px">${p.date}</td>
-                  <td>
-                      <button class="btn btn-success" style="padding:4px 8px; font-size:11px" onclick="approveQris('${p.order_id}')">Approve</button>
-                      <button class="btn btn-danger" style="padding:4px 8px; font-size:11px" onclick="rejectQris('${p.order_id}')">Tolak</button>
-                  </td>
-              </tr>
-          `).join('');
-      } catch(e) {}
-  }
-
-  async function approveQris(id) {
-      if(!confirm('Setujui transaksi ini secara manual? Akun akan langsung dikirim ke pembeli.')) return;
-      const res = await fetch(`/api/bot/pending/${id}/approve`, { method: 'POST' });
-      if(res.ok) { showToast('✅ Transaksi disetujui!'); loadTransactions(); }
-  }
-
-  async function rejectQris(id) {
-      if(!confirm('Tolak pesanan? Stok akan dikembalikan ke etalase.')) return;
-      const res = await fetch(`/api/bot/pending/${id}/reject`, { method: 'POST' });
-      if(res.ok) { showToast('❌ Transaksi ditolak & Stok kembali!'); loadTransactions(); }
-  }
-
-  function viewAccounts(trxId) {
-      const trx = allTransactionsData.find(t => t.trxId === trxId);
-      if(trx && trx.accounts && trx.accounts.length > 0) {
-          document.getElementById('viewAccountsContent').textContent = trx.accounts.join('\n');
-      } else {
-          document.getElementById('viewAccountsContent').textContent = "Tidak ada data akun yang tersimpan.";
-      }
-      showModal('viewAccountsModal');
-  }
-
-  function copyAccounts() {
-      const content = document.getElementById('viewAccountsContent').textContent;
-      
-      if (!content || content === "Tidak ada data akun yang tersimpan.") {
-          showToast('❌ Tidak ada akun untuk disalin!', 'error');
-          return;
-      }
-      
-      navigator.clipboard.writeText(content).then(() => {
-          showToast('✅ Berhasil menyalin seluruh akun!');
-      }).catch(err => {
-          showToast('❌ Gagal menyalin akun.', 'error');
-      });
-  }
-
-  function renderTransactionsTable(transactions) { 
-      const tbody = document.getElementById('transactionsTable'); 
-      if (transactions.length === 0) return tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px">No transactions</td></tr>'; 
-      tbody.innerHTML = [...transactions].reverse().map(trx => {
-          let badgeColor = 'badge-blue';
-          if(trx.paymentMethod === 'qris') badgeColor = 'badge-green';
-          if(trx.paymentMethod === 'qris_manual') badgeColor = 'badge-orange';
-          return `<tr>
-              <td><code style="font-size:10px">${trx.trxId}</code></td>
-              <td>${trx.userId}</td>
-              <td style="color:var(--text2)">${trx.product || '—'}</td>
-              <td><span class="badge ${badgeColor}">${trx.paymentMethod}</span></td>
-              <td style="color:var(--accent)">Rp ${(trx.amount||0).toLocaleString('id-ID')}</td>
-              <td style="color:var(--text2);font-size:12px">${trx.purchaseDate}</td>
-              <td><button class="btn btn-outline-blue" style="padding: 4px 8px; font-size: 11px;" onclick="viewAccounts('${trx.trxId}')">Lihat Akun</button></td>
-          </tr>`;
-      }).join(''); 
-  }
-  
-  function filterTransactions() { 
-      const q = document.getElementById('trxSearch').value.toLowerCase().trim(); 
-      if (!q) return renderTransactionsTable(allTransactionsData); 
-      renderTransactionsTable(allTransactionsData.filter(trx => (trx.trxId && trx.trxId.toLowerCase().includes(q)) || (trx.product && trx.product.toLowerCase().includes(q)) || (String(trx.userId).includes(q)))); 
-  }
-  
-  async function loadTransactions() { 
-      try { 
-          loadPendingQris(); 
-          allTransactionsData = await fetch(`/api/bot/transactions`).then(r => r.json()); 
-          renderTransactionsTable(allTransactionsData); 
-      } catch (e) { } 
-  }
-
-  document.getElementById('broadcastForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      const message = document.getElementById('broadcastMessage').value;
-      if (!confirm('Yakin ingin mengirim broadcast ini ke SEMUA user bot Anda?')) return;
-
-      const btn = document.getElementById('btnSendBroadcast');
-      btn.textContent = 'Mempersiapkan...';
-      btn.disabled = true;
-
-      try {
-          const res = await fetch('/api/bot/broadcast', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message })
-          });
-          const data = await res.json();
-          if (res.ok && data.success) {
-              showToast(`✅ ${data.message} (${data.total} Target)`);
-              document.getElementById('broadcastForm').reset();
-          } else {
-              showToast(`❌ Gagal: ${data.error}`, 'error');
-          }
-      } catch (err) {
-          showToast('❌ Kesalahan jaringan.', 'error');
-      } finally {
-          btn.textContent = '🚀 Kirim Broadcast Sekarang';
-          btn.disabled = false;
-      }
-  });
-
-  checkAuth();
-</script>
-</body>
-</html>
+app.listen(WEBHOOK_PORT, () => { 
+    console.log(`🌐 Web Dashboard & Server Webhook aktif di: http://localhost:${WEBHOOK_PORT}`); 
+    initDB(); 
+});
