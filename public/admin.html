@@ -155,10 +155,9 @@
   </nav>
   <div class="sidebar-footer">
     <div class="user-chip">
-      <div class="user-avatar" id="userAvatar">?</div>
-      <div class="user-chip-name" id="userInfo">Loading...</div>
+      <div class="user-avatar" id="userAvatar">A</div>
+      <div class="user-chip-name" id="userInfo">Admin</div>
     </div>
-    <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
 </aside>
 
@@ -241,19 +240,6 @@
           <button type="submit" class="btn btn-primary">Save Configuration</button>
         </form>
       </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:18px; color:var(--text)">Keamanan (Ganti Akses Login)</div>
-        <p style="font-size: 12px; color: var(--text2); margin-bottom: 16px;">Ubah username dan password default kamu di sini agar panel admin aman.</p>
-        <form id="profileForm">
-          <div class="form-group"><label class="form-label">Password Saat Ini (Wajib)</label><input type="password" class="form-input" id="currentPass" required placeholder="Masukkan password yang sekarang"></div>
-          <div class="form-grid">
-            <div class="form-group"><label class="form-label">Username Baru (Opsional)</label><input type="text" class="form-input" id="newUsername" placeholder="Biarkan kosong jika tidak diubah"></div>
-            <div class="form-group"><label class="form-label">Password Baru (Opsional)</label><input type="password" class="form-input" id="newPass" placeholder="Biarkan kosong jika tidak diubah"></div>
-          </div>
-          <button type="submit" class="btn btn-success">Simpan Profil Baru</button>
-        </form>
-      </div>
     </div>
 
     <!-- ===== PRODUCTS ===== -->
@@ -320,7 +306,7 @@
     <div class="page" id="page-broadcast">
       <div class="page-header"><div class="page-title">Broadcast Message</div><div class="page-subtitle">Kirim pesan massal ke seluruh user bot</div></div>
       <div class="card">
-        <div class="alert alert-info">Pesan mendukung format <strong>Markdown</strong>. Gunakan simbol <code>*tebal*</code>, <code>_miring_</code>, atau <code>`kode`</code>.</div>
+        <div class="alert alert-info">Pesan mendukung format <strong>Markdown</strong>. Gunakan simbol <code>*tebal*</code>, <code>_miring_</code>, atau <code>`kode`</code>. Tekan tombol Enter untuk garis baru.</div>
         <form id="broadcastForm">
           <div class="form-group">
             <label class="form-label">Isi Pesan Broadcast</label>
@@ -337,13 +323,23 @@
 
 <!-- MODALS -->
 <div class="modal-overlay" id="viewAccountsModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <div class="modal-title">Detail Akun Terkirim</div>
+  <div class="modal-box" style="max-width: 550px; padding: 24px;">
+    <div class="modal-header" style="margin-bottom: 24px; align-items: flex-start;">
+      <div>
+        <div class="modal-title" style="font-size: 20px; font-weight: 700; color: #fff;">Kode Terjual</div>
+        <div id="viewAccountsTrxId" style="font-size: 13px; color: var(--text3); font-family: 'JetBrains Mono', monospace; margin-top: 4px;">BR-XXXXX</div>
+      </div>
       <button class="modal-close" onclick="hideModal('viewAccountsModal')">×</button>
     </div>
-    <div id="viewAccountsContent" style="font-family: 'JetBrains Mono', monospace; background: var(--surface2); padding: 16px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; border: 1px solid var(--border); color: var(--accent);"></div>
-    <button class="btn btn-success btn-full" style="margin-top: 16px;" onclick="copyAccounts()">📋 Salin Semua Akun</button>
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div id="viewAccountsCount" style="font-size: 12px; font-weight: 700; color: var(--text2); letter-spacing: 1px; text-transform: uppercase;">0 KODE</div>
+        <button class="btn btn-outline-blue" style="padding: 6px 14px; font-size: 13px; border-radius: 8px; display: inline-flex; align-items: center;" onclick="copyAccounts()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy Semua
+        </button>
+    </div>
+    
+    <textarea id="viewAccountsContent" readonly style="width: 100%; height: 280px; background: #0a0a0a; color: #e6edf3; border: 1px solid var(--border); border-radius: 8px; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: none; outline: none; line-height: 1.6; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);"></textarea>
   </div>
 </div>
 
@@ -398,22 +394,31 @@
 <div class="modal-overlay" id="variationDiscountModal">
   <div class="modal-box">
     <div class="modal-header">
-      <div class="modal-title">Diskon Grosir Variasi</div>
+      <div class="modal-title">Diskon Grosir Bertingkat</div>
       <button class="modal-close" onclick="hideModal('variationDiscountModal')">×</button>
     </div>
     <form id="variationDiscountForm">
       <input type="hidden" id="discVarProdSlug"><input type="hidden" id="discVarId">
-      <div class="form-group">
-        <label class="form-label">Minimal Beli (Qty)</label>
-        <input type="number" class="form-input" id="discVarMinQty" placeholder="Contoh: 5" required>
+      <div style="font-size: 12px; color: var(--text2); margin-bottom: 16px;">Isi jumlah minimal beli dan harga grosirnya. Boleh isi 1 baris saja atau sampai 3 tingkatan (misal: Min 5 dan Min 100).</div>
+
+      <div class="form-grid" style="margin-bottom: 10px;">
+        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Min Beli 1</label><input type="number" class="form-input" id="discMin1" placeholder="Misal: 5"></div>
+        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Harga Satuan 1</label><input type="number" class="form-input" id="discPrice1" placeholder="Misal: 5000"></div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Harga Satuan Setelah Diskon (Rp)</label>
-        <input type="number" class="form-input" id="discVarPrice" placeholder="Contoh: 5000" required>
+      
+      <div class="form-grid" style="margin-bottom: 10px;">
+        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Min Beli 2</label><input type="number" class="form-input" id="discMin2" placeholder="Misal: 50"></div>
+        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Harga Satuan 2</label><input type="number" class="form-input" id="discPrice2" placeholder="Misal: 4500"></div>
       </div>
+
+      <div class="form-grid" style="margin-bottom: 18px;">
+        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Min Beli 3</label><input type="number" class="form-input" id="discMin3" placeholder="Misal: 100"></div>
+        <div class="form-group" style="margin-bottom: 0;"><label class="form-label">Harga Satuan 3</label><input type="number" class="form-input" id="discPrice3" placeholder="Misal: 4000"></div>
+      </div>
+
       <div style="display:flex;gap:10px;">
         <button type="submit" class="btn btn-success" style="flex:1">Simpan Grosir</button>
-        <button type="button" class="btn btn-danger" style="flex:1" onclick="clearVariationDiscount()">Hapus</button>
+        <button type="button" class="btn btn-danger" style="flex:1" onclick="clearVariationDiscount()">Hapus Semua</button>
       </div>
     </form>
   </div>
@@ -452,6 +457,7 @@
   const iconTrash = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
   const iconTag = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
   const iconPlus = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
+  const iconCopyTable = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: middle;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 
   function showToast(msg, type = 'success') { 
       const toast = document.getElementById('toast'); 
@@ -723,9 +729,15 @@
             if(product.variations && product.variations.length > 0) {
                 product.variations.forEach(v => {
                     let badgeHTML = '';
-                    if (v.wholesaleMinQty && v.wholesalePrice) {
-                        badgeHTML = `<span class="badge-diskon" style="margin-right:8px; border:1px solid rgba(63,185,80,0.3)">${iconTag} Min ${v.wholesaleMinQty} @ Rp ${v.wholesalePrice.toLocaleString('id-ID')}</span>`;
+                    let wList = v.wholesales || [];
+                    if(wList.length === 0 && v.wholesaleMinQty && v.wholesalePrice) {
+                        wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
                     }
+                    if (wList.length > 0) {
+                        wList.sort((a,b) => a.minQty - b.minQty);
+                        badgeHTML = wList.map(w => `<span class="badge-diskon" style="margin-right:8px; margin-bottom:4px; border:1px solid rgba(63,185,80,0.3)">${iconTag} Min ${w.minQty} @ Rp ${w.price.toLocaleString('id-ID')}</span>`).join('');
+                    }
+
                     htmlContent += `
                     <div style="background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px 16px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                       <div>
@@ -835,33 +847,69 @@
       const v = p.variations.find(x => x.id === varId); 
       document.getElementById('discVarProdSlug').value = slug; 
       document.getElementById('discVarId').value = varId; 
-      document.getElementById('discVarMinQty').value = v.wholesaleMinQty || ''; 
-      document.getElementById('discVarPrice').value = v.wholesalePrice || ''; 
+      
+      document.getElementById('discMin1').value = '';
+      document.getElementById('discPrice1').value = '';
+      document.getElementById('discMin2').value = '';
+      document.getElementById('discPrice2').value = '';
+      document.getElementById('discMin3').value = '';
+      document.getElementById('discPrice3').value = '';
+
+      let wList = [];
+      if (v.wholesales && v.wholesales.length > 0) {
+          wList = v.wholesales;
+      } else if (v.wholesaleMinQty && v.wholesalePrice) {
+          wList = [{minQty: v.wholesaleMinQty, price: v.wholesalePrice}];
+      }
+
+      if(wList[0]) {
+          document.getElementById('discMin1').value = wList[0].minQty;
+          document.getElementById('discPrice1').value = wList[0].price;
+      }
+      if(wList[1]) {
+          document.getElementById('discMin2').value = wList[1].minQty;
+          document.getElementById('discPrice2').value = wList[1].price;
+      }
+      if(wList[2]) {
+          document.getElementById('discMin3').value = wList[2].minQty;
+          document.getElementById('discPrice3').value = wList[2].price;
+      }
+
       showModal('variationDiscountModal'); 
   }
   
   document.getElementById('variationDiscountForm').addEventListener('submit', async e => { 
       e.preventDefault(); 
+      
+      let wholesales = [];
+      
+      let min1 = parseInt(document.getElementById('discMin1').value);
+      let price1 = parseInt(document.getElementById('discPrice1').value);
+      if(!isNaN(min1) && !isNaN(price1)) wholesales.push({minQty: min1, price: price1});
+      
+      let min2 = parseInt(document.getElementById('discMin2').value);
+      let price2 = parseInt(document.getElementById('discPrice2').value);
+      if(!isNaN(min2) && !isNaN(price2)) wholesales.push({minQty: min2, price: price2});
+      
+      let min3 = parseInt(document.getElementById('discMin3').value);
+      let price3 = parseInt(document.getElementById('discPrice3').value);
+      if(!isNaN(min3) && !isNaN(price3)) wholesales.push({minQty: min3, price: price3});
+
       await fetch(`/api/bot/products/${document.getElementById('discVarProdSlug').value}/variations/${document.getElementById('discVarId').value}`, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ 
-              wholesale: {
-                  minQty: document.getElementById('discVarMinQty').value,
-                  price: document.getElementById('discVarPrice').value
-              } 
-          }) 
+          body: JSON.stringify({ wholesales: wholesales }) 
       }); 
       hideModal('variationDiscountModal'); 
       loadProducts(); 
-      showToast('✅ Diskon Grosir disimpan!'); 
+      showToast('✅ Diskon Grosir Bertingkat disimpan!'); 
   });
   
   async function clearVariationDiscount() { 
       await fetch(`/api/bot/products/${document.getElementById('discVarProdSlug').value}/variations/${document.getElementById('discVarId').value}`, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ wholesale: null }) 
+          body: JSON.stringify({ wholesales: [] }) 
       }); 
       hideModal('variationDiscountModal'); 
       loadProducts(); 
@@ -992,18 +1040,25 @@
       if(res.ok) { showToast('❌ Transaksi ditolak & Stok kembali!'); loadTransactions(); }
   }
 
+  // --- RENDER MODAL DETAIL AKUN (UI BARU) ---
   function viewAccounts(trxId) {
       const trx = allTransactionsData.find(t => t.trxId === trxId);
+      
+      document.getElementById('viewAccountsTrxId').textContent = trxId;
+      
       if(trx && trx.accounts && trx.accounts.length > 0) {
-          document.getElementById('viewAccountsContent').textContent = trx.accounts.join('\n');
+          document.getElementById('viewAccountsCount').textContent = `${trx.accounts.length} KODE`;
+          document.getElementById('viewAccountsContent').value = trx.accounts.join('\n');
       } else {
-          document.getElementById('viewAccountsContent').textContent = "Tidak ada data akun yang tersimpan.";
+          document.getElementById('viewAccountsCount').textContent = `0 KODE`;
+          document.getElementById('viewAccountsContent').value = "Tidak ada data akun yang tersimpan.";
       }
       showModal('viewAccountsModal');
   }
 
+  // --- FUNGSI SALIN DARI TEXTAREA ---
   function copyAccounts() {
-      const content = document.getElementById('viewAccountsContent').textContent;
+      const content = document.getElementById('viewAccountsContent').value;
       
       if (!content || content === "Tidak ada data akun yang tersimpan.") {
           showToast('❌ Tidak ada akun untuk disalin!', 'error');
@@ -1017,6 +1072,7 @@
       });
   }
 
+  // --- RENDER TABEL TRANSAKSI DENGAN TOMBOL BARU ---
   function renderTransactionsTable(transactions) { 
       const tbody = document.getElementById('transactionsTable'); 
       if (transactions.length === 0) return tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px">No transactions</td></tr>'; 
@@ -1024,6 +1080,9 @@
           let badgeColor = 'badge-blue';
           if(trx.paymentMethod === 'qris') badgeColor = 'badge-green';
           if(trx.paymentMethod === 'qris_manual') badgeColor = 'badge-orange';
+          
+          const count = trx.accounts ? trx.accounts.length : 0;
+          
           return `<tr>
               <td><code style="font-size:10px">${trx.trxId}</code></td>
               <td>${trx.userId}</td>
@@ -1031,7 +1090,7 @@
               <td><span class="badge ${badgeColor}">${trx.paymentMethod}</span></td>
               <td style="color:var(--accent)">Rp ${(trx.amount||0).toLocaleString('id-ID')}</td>
               <td style="color:var(--text2);font-size:12px">${trx.purchaseDate}</td>
-              <td><button class="btn btn-outline-blue" style="padding: 4px 8px; font-size: 11px;" onclick="viewAccounts('${trx.trxId}')">Lihat Akun</button></td>
+              <td><button class="btn btn-outline-blue" style="padding: 6px 12px; font-size: 12px; border-radius: 8px; display: inline-flex; align-items: center;" onclick="viewAccounts('${trx.trxId}')">${iconCopyTable} ${count} kode</button></td>
           </tr>`;
       }).join(''); 
   }
