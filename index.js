@@ -5,8 +5,8 @@ const path = require('path');
 const moment = require('moment'); 
 const express = require('express');
 const session = require('express-session');
-const AdmZip = require('adm-zip'); // Tambahan Modul ZIP
-const cron = require('node-cron'); // Tambahan Modul Jadwal (Cron)
+const AdmZip = require('adm-zip');
+const cron = require('node-cron');
 
 // ==========================================
 // INISIALISASI WEB SERVER
@@ -69,7 +69,6 @@ async function sendDatabaseBackup(targetChatId = null) {
         let hasFiles = false;
 
         try {
-            // Memasukkan file utama ke dalam ZIP
             const rootFiles = ['users.json', 'products.json', 'orders.json', 'pending_qris.json', 'admins.json', 'config.json'];
             for (let f of rootFiles) {
                 let p = path.join(DB_DIR, f);
@@ -80,7 +79,6 @@ async function sendDatabaseBackup(targetChatId = null) {
                 } catch {}
             }
 
-            // Memasukkan folder stocks ke dalam folder 'stocks' di ZIP
             try {
                 const stockFiles = await fs.readdir(paths.stocks);
                 for (let sf of stockFiles) {
@@ -96,7 +94,6 @@ async function sendDatabaseBackup(targetChatId = null) {
                 return;
             }
 
-            // Generate Buffer ZIP langsung dari memori tanpa menyimpannya ke disk
             const zipBuffer = zip.toBuffer();
             const zipName = `Backup_DB_${moment().format('YYYY-MM-DD_HH-mm')}.zip`;
 
@@ -227,13 +224,12 @@ async function initDB() {
     await cleanupExpiredQris(); 
     setInterval(cleanupExpiredQris, 60 * 1000); 
 
-    // Jadwal Auto Backup menggunakan Cron Job (00:01 WIB)
     cron.schedule('1 0 * * *', () => {
         console.log("⏰ [CRON] Menjalankan Auto Backup harian (00:01 WIB)...");
         sendDatabaseBackup();
     }, {
         scheduled: true,
-        timezone: "Asia/Jakarta" // Menyesuaikan dengan Waktu Indonesia Barat (WIB)
+        timezone: "Asia/Jakarta"
     });
 }
 
@@ -315,7 +311,6 @@ async function setupTelegramBot() {
         } 
     }
 
-    // --- FUNGSI MENU UTAMA ---
     async function sendMainMenu(chatId, fromUser, page = 1, editMsgId = null) {
         const release = await dbLock.acquire(); 
         try {
@@ -394,7 +389,6 @@ async function setupTelegramBot() {
         } finally { release(); }
     }
 
-    // --- TAMPILAN MENU VARIASI ---
     async function renderVarMenu(product) {
         let descText = (product.description && product.description.trim() !== '') ? `_${product.description}_\n\n` : '';
         let text = `*${product.name}*\n${descText}`;
@@ -461,7 +455,6 @@ async function setupTelegramBot() {
         };
     }
 
-    // --- TRIGGER COMMAND & MESSAGE ---
     bot.onText(/\/start|🏠 Menu/, async (msg) => {
         return sendMainMenu(msg.chat.id, msg.from, 1);
     });
@@ -647,7 +640,7 @@ async function setupTelegramBot() {
             const basePrice = calcData.total;
             
             if (finalQty > stockCount || stockCount === 0) return bot.answerCallbackQuery(query.id, { text: "Maaf, stok barang sedang kosong.", show_alert: true });
-
+            
             const dateStr = moment().format('DDMMYYYY');
             const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
             
@@ -806,7 +799,7 @@ app.get('/api/bot/stats', async (req, res) => {
                 if (Array.isArray(stockData)) totalStock += stockData.length; 
             } 
         } 
-    } catch (e) { }
+    } catch (e) { } 
     
     res.json({ 
         isRunning: bot !== null, 
@@ -937,6 +930,43 @@ app.post('/api/bot/balance/:id/add', async (req, res) => {
 });
 
 // ==========================================
+// ENDPOINT: BROADCAST PESAN KE SEMUA USER
+// ==========================================
+app.post('/api/bot/broadcast', async (req, res) => {
+    if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
+    
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'Pesan tidak boleh kosong' });
+
+    const release = await dbLock.acquire();
+    try {
+        const users = await readDB(paths.users);
+        if (users.length === 0) return res.status(400).json({ error: 'Tidak ada user untuk dibroadcast' });
+
+        res.json({ success: true, total: users.length, message: 'Broadcast sedang berjalan di latar belakang...' });
+
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (let i = 0; i < users.length; i++) {
+            try {
+                await bot.sendMessage(users[i].id, message, { parse_mode: 'Markdown' });
+                successCount++;
+            } catch (err) {
+                failCount++;
+            }
+            await new Promise(resolve => setTimeout(resolve, 50)); 
+        }
+        console.log(`📢 [BROADCAST SELESAI] Mengirim ke ${users.length} user. Sukses: ${successCount}, Gagal/Blokir: ${failCount}`);
+
+    } catch (err) {
+        console.error('❌ [BROADCAST ERROR]:', err.message);
+    } finally {
+        release();
+    }
+});
+
+// ==========================================
 // HELPER: PROSES PESANAN SUKSES
 // ==========================================
 async function finalizeOrderSuccess(orderData, paymentMethod, successTitle) {
@@ -1005,7 +1035,7 @@ async function finalizeOrderSuccess(orderData, paymentMethod, successTitle) {
         if (orderData.qty <= 100) {
             runAutoPayQuietly(orderData.reserved_accounts);
         } else {
-            console.log(`⚠️ [SYSTEM] Order ${orderData.order_id} lebih dari 50 akun (${orderData.qty}). Auto Pay dibatalkan agar server tidak overload.`);
+            console.log(`⚠️ [SYSTEM] Order ${orderData.order_id} lebih dari 100 akun (${orderData.qty}). Auto Pay dibatalkan agar server tidak overload.`);
         }
     }
 }
