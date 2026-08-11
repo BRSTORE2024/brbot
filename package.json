@@ -4,7 +4,7 @@
   "description": "Sistem Bot Telegram, Web Panel, dan Auto Pay Puppeteer",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"",
+    "start": "node index.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",
