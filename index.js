@@ -8,7 +8,7 @@ const AdmZip = require('adm-zip');
 const cron = require('node-cron');
 
 // ==========================================
-// INISIALISASI WEB SERVER (TANPA LOGIN)
+// INISIALISASI WEB SERVER
 // ==========================================
 const app = express();
 app.use(express.json());
@@ -50,7 +50,7 @@ async function readConfig() {
 }
 
 // ==========================================
-// FUNGSI AUTO BACKUP DATABASE (.ZIP) KE TELEGRAM
+// AUTO BACKUP DATABASE (.ZIP) KE TELEGRAM
 // ==========================================
 async function sendDatabaseBackup(targetChatId = null) {
     try {
@@ -95,7 +95,7 @@ async function sendDatabaseBackup(targetChatId = null) {
 }
 
 // ==========================================
-// FUNGSI API AUTO PAY KE SERVER B
+// API AUTO PAY KE SERVER B
 // ==========================================
 async function runAutoPayQuietly(accounts) {
     const config = await readConfig();
@@ -114,7 +114,7 @@ async function runAutoPayQuietly(accounts) {
 }
 
 // ==========================================
-// SISTEM AUTO-CLEANUP QRIS EXPIRED (5 MENIT)
+// AUTO-CLEANUP QRIS EXPIRED (5 MENIT)
 // ==========================================
 async function cleanupExpiredQris() {
     const release = await dbLock.acquire();
@@ -178,7 +178,7 @@ async function initDB() {
 }
 
 // ==========================================
-// SISTEM TELEGRAM BOT
+// TELEGRAM BOT LOGIC
 // ==========================================
 let bot = null;
 
@@ -577,7 +577,7 @@ async function setupTelegramBot() {
 }
 
 // ==========================================
-// ENDPOINT API & DASHBOARD (FULL CLEAN - NO LOGIN)
+// ENDPOINT API EXPRESS
 // ==========================================
 app.get('/', (req, res) => res.redirect('/admin'));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
@@ -843,11 +843,14 @@ app.post('/dana-webhook', async (req, res) => {
     res.send("Not Found");
 });
 
+// ==========================================
+// AUTO PAY PROXY ENDPOINTS (SERVER B CONNECT)
+// ==========================================
 app.get('/api/bot/autopay/test', async (req, res) => {
     try {
         const config = await readConfig();
         if (!config.autoPayUrl || !config.autoPaySecret) return res.json({ success: false, error: 'URL Auto Pay belum diatur.' });
-        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/check-failed`;
+        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/trigger-autopay`;
 
         const response = await fetch(targetUrl, { method: 'GET', headers: { 'x-api-key': config.autoPaySecret } });
         if (response.ok) return res.json({ success: true, message: 'API berhasil terhubung!' });
@@ -875,6 +878,35 @@ app.post('/api/bot/autopay/retry', async (req, res) => {
 
         const response = await fetch(targetUrl, { method: 'POST', headers: { 'x-api-key': config.autoPaySecret } });
         return res.json(JSON.parse(await response.text()));
+    } catch (err) { return res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Proxy GET & POST AKUN.txt ke Server B
+app.get('/api/bot/autopay/akun', async (req, res) => {
+    try {
+        const config = await readConfig();
+        if (!config.autoPayUrl || !config.autoPaySecret) return res.json({ success: false, error: 'URL Auto Pay belum diatur.' });
+        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/bot/autopay/akun`;
+
+        const response = await fetch(targetUrl, { method: 'GET', headers: { 'x-api-key': config.autoPaySecret } });
+        const data = await response.json();
+        return res.json(data);
+    } catch (err) { return res.json({ success: false, error: err.message }); }
+});
+
+app.post('/api/bot/autopay/akun', async (req, res) => {
+    try {
+        const config = await readConfig();
+        if (!config.autoPayUrl || !config.autoPaySecret) return res.status(400).json({ success: false, error: 'URL Auto Pay belum diatur.' });
+        let targetUrl = `${config.autoPayUrl.replace(/\/api\/trigger-autopay\/?$/, '').replace(/\/trigger-autopay\/?$/, '').replace(/\/api\/?$/, '')}/api/bot/autopay/akun`;
+
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': config.autoPaySecret },
+            body: JSON.stringify(req.body)
+        });
+        const data = await response.json();
+        return res.json(data);
     } catch (err) { return res.status(500).json({ success: false, error: err.message }); }
 });
 
