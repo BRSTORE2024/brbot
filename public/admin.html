@@ -384,6 +384,40 @@
   </div>
 </div>
 
+<!-- Modal Input Jumlah Ambil Stok -->
+<div class="modal-overlay" id="takeStockModal">
+  <div class="modal-box">
+    <div class="modal-header">
+        <div class="modal-title">Ambil Stok Manual</div>
+        <button class="modal-close" onclick="hideModal('takeStockModal')">×</button>
+    </div>
+    <form id="takeStockForm">
+      <input type="hidden" id="takeStockVarId">
+      <div class="form-group">
+        <label class="form-label">Jumlah Stok yang Ingin Diambil</label>
+        <input type="number" class="form-input" id="takeStockCount" min="1" required>
+        <div style="font-size:11px; color:var(--text2); margin-top: 5px;">Sisa stok tersedia: <span id="takeStockMax" style="color:var(--accent);font-weight:bold;">0</span></div>
+      </div>
+      <button type="submit" class="btn btn-outline-orange btn-full">Ambil & Hapus dari Sistem</button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Hasil Ambil Stok -->
+<div class="modal-overlay" id="resultTakeStockModal">
+  <div class="modal-box" style="max-width: 550px;">
+    <div class="modal-header">
+        <div class="modal-title" style="color:var(--accent)">Berhasil Diambil!</div>
+        <button class="modal-close" onclick="hideModal('resultTakeStockModal')">×</button>
+    </div>
+    <div style="margin-bottom: 12px; display:flex; justify-content:space-between; align-items:center;">
+       <span style="font-size:12px; color:var(--text2)">Silakan salin kode di bawah ini:</span>
+       <button class="btn btn-outline-blue" onclick="copyTakenStock()">📋 Copy Semua</button>
+    </div>
+    <textarea id="takenStockContent" readonly class="stock-display" style="height: 250px; font-family: 'JetBrains Mono', monospace; font-size:13px; outline: none;"></textarea>
+  </div>
+</div>
+
 <div class="modal-overlay" id="addBalanceModal">
   <div class="modal-box">
     <div class="modal-header"><div class="modal-title">Add Balance</div><button class="modal-close" onclick="hideModal('addBalanceModal')">×</button></div>
@@ -460,12 +494,10 @@
           document.getElementById('autoPayUrl').value = cfg.autoPayUrl || ''; 
           document.getElementById('autoPaySecret').value = cfg.autoPaySecret || ''; 
           
-          // Memuat isi AKUN.txt
           loadAkunTxt();
       } catch (e) { } 
   }
 
-  // FUNGSI UNTUK AKUN.TXT
   async function loadAkunTxt() {
       try {
           const res = await fetch('/api/bot/autopay/akun');
@@ -610,12 +642,30 @@
       document.getElementById('stockVariationSelector').innerHTML = '<option value="">— Choose variation —</option>' + p.map(pr => pr.variations.map(v => `<option value="${v.id}">${pr.name} — ${v.name}</option>`).join('')).join(''); 
       document.getElementById('stockDetails').innerHTML = ''; 
   }
+
+  function showAddStockModal(varId) { 
+      document.getElementById('stockVariationId').value = varId; 
+      document.getElementById('stockCodes').value = ''; 
+      showModal('addStockModal'); 
+  }
+
   async function loadStockForVariation() { 
       const varId = document.getElementById('stockVariationSelector').value; if (!varId) return; 
       const stock = await fetch(`/api/bot/stock/${varId}`).then(r => r.json()); 
-      document.getElementById('stockDetails').innerHTML = `<div style="display:flex;justify-content:space-between;margin:16px 0;align-items:center"><span style="font-size:22px;color:var(--accent);font-weight:bold">${stock.count} <span style="font-size:12px;color:var(--text3)">codes</span></span><button class="btn btn-primary" onclick="showAddStockModal('${varId}')">${iconPlus} Add Codes</button></div>` + (stock.count>0?`<textarea class="stock-display" readonly>${stock.codes.join('\n')}</textarea>`:''); 
+      
+      document.getElementById('stockDetails').innerHTML = `
+          <div style="display:flex;justify-content:space-between;margin:16px 0;align-items:center">
+              <span style="font-size:22px;color:var(--accent);font-weight:bold">${stock.count} <span style="font-size:12px;color:var(--text3)">kode tersedia</span></span>
+              <div style="display:flex; gap: 10px;">
+                  <button class="btn btn-outline-orange" onclick="showTakeStockModal('${varId}', ${stock.count})">🛒 Ambil Stok</button>
+                  <button class="btn btn-primary" onclick="showAddStockModal('${varId}')">${iconPlus} Tambah</button>
+              </div>
+          </div>
+          <div style="color:var(--text3); font-size: 11px; margin-top: 4px;">
+              *Daftar kode sengaja disembunyikan agar performa panel tetap ringan.
+          </div>`; 
   }
-  function showAddStockModal(varId) { document.getElementById('stockVariationId').value = varId; showModal('addStockModal'); }
+
   document.getElementById('addStockForm').addEventListener('submit', async e => { e.preventDefault(); await fetch(`/api/bot/stock/${document.getElementById('stockVariationId').value}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codes: document.getElementById('stockCodes').value }) }); hideModal('addStockModal'); loadStockForVariation(); showToast('✅ Stock added!'); });
 
   function renderUsersTable(u) { document.getElementById('usersTable').innerHTML = u.length ? u.map(x => `<tr><td><code>${x.userId}</code></td><td>${x.username?`@${x.username}`:'—'}</td><td>${x.firstName||'—'}</td><td style="color:var(--text2);font-size:12px">${x.firstSeen}</td><td style="color:var(--accent);font-weight:bold">Rp ${(x.balance||0).toLocaleString('id-ID')}</td><td><button class="btn btn-success" onclick="showAddBalanceModal(${x.userId})">+Saldo</button></td></tr>`).join('') : '<tr><td colspan="6" style="text-align:center;">Empty</td></tr>'; }
@@ -665,6 +715,55 @@
           else showToast(`❌ ${data.error}`, 'error');
       } catch (err) {} finally { btn.textContent = '🚀 Kirim Broadcast'; btn.disabled = false; }
   });
+
+  // LOGIKA AMBIL STOK MANUAL
+  function showTakeStockModal(varId, maxCount) {
+      if(maxCount <= 0) return showToast('❌ Stok kosong!', 'error');
+      document.getElementById('takeStockVarId').value = varId;
+      document.getElementById('takeStockCount').value = 1;
+      document.getElementById('takeStockMax').textContent = maxCount;
+      document.getElementById('takeStockCount').max = maxCount;
+      showModal('takeStockModal');
+  }
+
+  document.getElementById('takeStockForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const varId = document.getElementById('takeStockVarId').value;
+      const count = parseInt(document.getElementById('takeStockCount').value);
+      
+      const btnSubmit = e.target.querySelector('button[type="submit"]');
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Memproses...';
+
+      try {
+          const res = await fetch(`/api/bot/stock/${varId}/take`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ count })
+          });
+          const data = await res.json();
+          
+          if (data.success) {
+              hideModal('takeStockModal');
+              document.getElementById('takenStockContent').value = data.taken.join('\n');
+              showModal('resultTakeStockModal');
+              loadStockForVariation(); 
+              showToast(`✅ ${count} stok berhasil diambil!`);
+          } else {
+              showToast(`❌ ${data.error}`, 'error');
+          }
+      } catch (err) {
+          showToast('❌ Gagal mengambil stok', 'error');
+      } finally {
+          btnSubmit.disabled = false;
+          btnSubmit.textContent = 'Ambil & Hapus dari Sistem';
+      }
+  });
+
+  function copyTakenStock() {
+      const txt = document.getElementById('takenStockContent').value;
+      navigator.clipboard.writeText(txt).then(() => showToast('✅ Tersalin!')).catch(() => showToast('❌ Gagal salin', 'error'));
+  }
 
   loadBots();
 </script>
