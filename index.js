@@ -691,12 +691,36 @@ app.get('/api/bot/stock/:id', async (req, res) => {
     res.json({ count: d.length || 0, codes: d || [] }); 
 });
 
+// FITUR FILTER DUPLIKASI STOK
 app.post('/api/bot/stock/:id', async (req, res) => { 
     const p = path.join(paths.stocks, `stock_${req.params.id}.json`); 
     let d = await readDB(p); 
-    d.push(...req.body.codes.split('\n').filter(c=>c.trim())); 
-    await fs.writeFile(p, JSON.stringify(d, null, 2)); 
+    
+    // Memisahkan data input menjadi array dan menghapus spasi kosong
+    let newCodes = req.body.codes.split('\n').map(c => c.trim()).filter(c => c); 
+    
+    // Menggabungkan stok lama dan baru, lalu menggunakan 'Set' untuk membuang duplikat otomatis
+    let updatedStock = [...new Set([...d, ...newCodes])]; 
+    
+    await fs.writeFile(p, JSON.stringify(updatedStock, null, 2)); 
     res.json({ success: true }); 
+});
+
+// ==========================================
+// API AMBIL STOK MANUAL
+// ==========================================
+app.post('/api/bot/stock/:id/take', async (req, res) => { 
+    const p = path.join(paths.stocks, `stock_${req.params.id}.json`); 
+    let d = await readDB(p); 
+    const takeCount = parseInt(req.body.count);
+    
+    if (isNaN(takeCount) || takeCount <= 0) return res.status(400).json({ error: 'Jumlah tidak valid' });
+    if (takeCount > d.length) return res.status(400).json({ error: 'Stok tidak cukup' });
+    
+    // Memotong stok sejumlah takeCount dari urutan paling atas
+    const taken = d.splice(0, takeCount); 
+    await fs.writeFile(p, JSON.stringify(d, null, 2)); 
+    res.json({ success: true, taken: taken }); 
 });
 
 app.get('/api/bot/users', async (req, res) => { 
