@@ -160,6 +160,19 @@
         <button type="button" class="btn btn-outline-blue" onclick="testApiConnection()">🔍 Tes Koneksi API</button>
       </div>
 
+      <!-- CARD EDIT AKUN.TXT -->
+      <div class="card" style="border: 1px solid rgba(88,166,255,0.3);">
+        <div class="card-title" style="color: var(--accent2);">📁 Kelola File AKUN.txt</div>
+        <div style="display:flex; gap:10px; margin-bottom: 14px;">
+            <button type="button" class="btn btn-outline-blue" onclick="loadAkunTxt()">🔄 Reload AKUN.txt</button>
+            <button type="button" class="btn btn-success" onclick="saveAkunTxt()">💾 Simpan Perubahan</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Daftar Akun (Format: email password)</label>
+          <textarea class="stock-display" id="akunTxtContent" style="height: 200px;" placeholder="email1@gmail.com pass123&#10;email2@gmail.com pass123"></textarea>
+        </div>
+      </div>
+
       <div class="card" style="border: 1px solid rgba(255,166,87,0.3);">
         <div class="card-title" style="color: var(--accent4);">Retry Auto Pay (Akun Gagal)</div>
         <div style="display:flex; gap:10px; margin-bottom: 14px;">
@@ -446,7 +459,41 @@
           document.getElementById('trxPrefix').value = cfg.trxPrefix || 'BR'; 
           document.getElementById('autoPayUrl').value = cfg.autoPayUrl || ''; 
           document.getElementById('autoPaySecret').value = cfg.autoPaySecret || ''; 
+          
+          // Memuat isi AKUN.txt
+          loadAkunTxt();
       } catch (e) { } 
+  }
+
+  // FUNGSI UNTUK AKUN.TXT
+  async function loadAkunTxt() {
+      try {
+          const res = await fetch('/api/bot/autopay/akun');
+          const data = await res.json();
+          if (data.success) {
+              document.getElementById('akunTxtContent').value = data.content || '';
+              showToast('✅ AKUN.txt dimuat');
+          } else {
+              showToast('❌ Gagal memuat AKUN.txt', 'error');
+          }
+      } catch (e) { showToast('❌ Error jaringan', 'error'); }
+  }
+
+  async function saveAkunTxt() {
+      const content = document.getElementById('akunTxtContent').value;
+      try {
+          const res = await fetch('/api/bot/autopay/akun', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content })
+          });
+          const data = await res.json();
+          if (data.success) {
+              showToast('✅ AKUN.txt disimpan!');
+          } else {
+              showToast('❌ Gagal menyimpan: ' + data.error, 'error');
+          }
+      } catch (e) { showToast('❌ Error jaringan', 'error'); }
   }
 
   async function testApiConnection() {
@@ -619,7 +666,6 @@
       } catch (err) {} finally { btn.textContent = '🚀 Kirim Broadcast'; btn.disabled = false; }
   });
 
-  // JALANKAN SAAT HALAMAN DIBUKA (TANPA LOGIN)
   loadBots();
 </script>
 </body>
