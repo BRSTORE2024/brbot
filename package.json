@@ -1,22 +1,22 @@
 {
-  "name": "br-store-bot",
+  "name": "bot-telegram-js",
   "version": "1.0.0",
-  "description": "Sistem Bot Telegram, Web Panel, dan Auto Pay Puppeteer",
+  "description": "Bot Telegram Node.js Anti-Crash dengan Telegraf",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "keywords": [
+    "telegram",
+    "bot",
+    "telegraf",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "adm-zip": "^0.5.14",
-    "axios": "^1.7.2",
-    "concurrently": "^8.2.2",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-session": "^1.18.0",
-    "moment": "^2.30.1",
-    "node-cron": "^3.0.3",
-    "node-telegram-bot-api": "^0.66.0"
-  },
-  "author": "BR Store",
-  "license": "ISC"
+    "express": "^5.3.0",
+    "telegraf": "^4.16.3"
+  }
 }
